@@ -1,6 +1,6 @@
 ---
 title: Messages
-description: Messages
+description: Kafka message structure and serialization model.
 weight: 2
 tags: ['kafka', 'docs']
 aliases: 
