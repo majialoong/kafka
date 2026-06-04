@@ -1,6 +1,6 @@
 ---
 title: Compatibility
-description: 
+description: Check Java, server, and client/broker compatibility matrices for planning Kafka upgrades.
 weight: 7
 tags: ['kafka', 'docs']
 aliases: 
@@ -28,7 +28,7 @@ type: docs
 
 With the release of Kafka 4.0, significant changes have been introduced that impact compatibility across various components. To assist users in planning upgrades and ensuring seamless interoperability, a comprehensive compatibility matrix has been prepared. 
 
-# JDK Compatibility Across Kafka Versions  
+## JDK Compatibility Across Kafka Versions
   
 <table>  
 <tr>  
@@ -139,7 +139,7 @@ Server
 
 **Note: Java 8 is removed in Kafka 4.0 and is no longer supported.**
 
-# Server Compatibility  
+## Server Compatibility
   
 <table>  
 <tr>  

@@ -1,6 +1,6 @@
 ---
 title: KRaft vs ZooKeeper
-description: 
+description: Understand how KRaft mode differs from ZooKeeper, including removed features, metric changes, and behavioral changes.
 weight: 6
 tags: ['kafka', 'docs']
 aliases: 
@@ -26,13 +26,11 @@ type: docs
 -->
 
 
-# Differences Between KRaft mode and ZooKeeper mode
-
-# Removed ZooKeeper Features
-
 This section documents differences in behavior between KRaft mode and ZooKeeper mode. Specifically, several configurations, metrics and features have changed or are no longer required in KRaft mode. To migrate an existing cluster from ZooKeeper mode to KRaft mode, please refer to the [ZooKeeper to KRaft Migration](/39/operations/kraft/#zookeeper-to-kraft-migration) section. 
 
-## Configurations
+## Removed ZooKeeper Features
+
+### Configurations
 
 * Removed password encoder-related configurations. These configurations were used in ZooKeeper mode to define the key and backup key for encrypting sensitive data (e.g., passwords), specify the algorithm and key generation method for password encryption (e.g., AES, RSA), and control the key length and encryption strength. 
 
@@ -100,7 +98,7 @@ This section documents differences in behavior between KRaft mode and ZooKeeper 
     * `zookeeper.ssl.ocsp.enable`
 
 
-## Dynamic Log Levels
+### Dynamic Log Levels
 
 * The dynamic log levels feature allows you to change the log4j settings of a running broker or controller process without restarting it. The command-line syntax for setting dynamic log levels on brokers has not changed in KRaft mode. Here is an example of setting the log level on a broker:  
 
@@ -114,7 +112,7 @@ This section documents differences in behavior between KRaft mode and ZooKeeper 
   ```
 
 
-* When setting dynamic log levels on the controllers, the `--bootstrap-controller` flag must be used. Here is an example of setting the log level ona controller:  
+* When setting dynamic log levels on the controllers, the `--bootstrap-controller` flag must be used. Here is an example of setting the log level on a controller:
 
 
   ```bash
@@ -134,7 +132,7 @@ This section documents differences in behavior between KRaft mode and ZooKeeper 
 
 
 
-## Dynamic Controller Configurations
+### Dynamic Controller Configurations
 
 * Some Kafka configurations can be changed dynamically, without restarting the process. The command-line syntax for setting dynamic log levels on brokers has not changed in KRaft mode. Here is an example of setting the number of IO threads on a broker:  
 
@@ -166,7 +164,7 @@ Prior to version 4.3, dynamic configuration updates were not supported unless a 
 
 
 
-# Metrics
+## Metrics
 
 * Removed the following metrics related to ZooKeeper. `ControlPlaneNetworkProcessorAvgIdlePercent` is to monitor the average fraction of time the network processors are idle. The other `ControlPlaneExpiredConnectionsKilledCount` is to monitor the total number of connections disconnected, across all processors. 
 
@@ -230,7 +228,7 @@ Prior to version 4.3, dynamic configuration updates were not supported unless a 
 
 
 
-# Behavioral Change Reference
+## Behavioral Change Reference
 
 This document catalogs the functional and operational differences between ZooKeeper mode and KRaft mode. 
 
