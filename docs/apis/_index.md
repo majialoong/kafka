@@ -1,6 +1,6 @@
 ---
 title: API
-description: 
+description: An overview of the core Kafka APIs for client applications, stream processing, Connect integrations, and cluster administration.
 weight: 2
 tags: ['kafka', 'docs']
 aliases: 
@@ -26,11 +26,11 @@ type: docs
 -->
 
 
-Kafka includes six core apis: 
+Kafka includes six core APIs: 
 
   1. The Producer API allows applications to send streams of data to topics in the Kafka cluster. 
   2. The Consumer API allows applications to read streams of data from topics in the Kafka cluster. 
-  3. The Share consumer API allows applications in a share group to cooperatively consume and process data from Kafka topics. 
+  3. The Share Consumer API allows applications in a share group to cooperatively consume and process data from Kafka topics. 
   4. The Streams API allows transforming streams of data from input topics to output topics. 
   5. The Connect API allows implementing connectors that continually pull from some source system or application into Kafka or push from Kafka into some sink system or application. 
   6. The Admin API allows managing and inspecting topics, brokers, and other Kafka objects. 
@@ -128,7 +128,7 @@ Those who want to implement custom connectors can see the [javadoc](/{version}/j
 
 # Admin API
 
-The Admin API supports managing and inspecting topics, brokers, acls, and other Kafka objects. 
+The Admin API supports managing and inspecting topics, brokers, ACLs, and other Kafka objects. 
 
 To use the Admin API, add the following Maven dependency to your project: 
 

@@ -1,6 +1,6 @@
 ---
 title: Topic Configs
-description: Topic Configs
+description: Kafka topic configuration reference.
 weight: 2
 tags: ['kafka', 'docs']
 aliases: 
@@ -26,7 +26,7 @@ type: docs
 -->
 
 
-Configurations pertinent to topics have both a server default as well an optional per-topic override. If no per-topic configuration is given the server default is used. The override can be set at topic creation time by giving one or more `--config` options. This example creates a topic named _my-topic_ with a custom max message size and flush rate: 
+Configurations pertinent to topics have both a server default and an optional per-topic override. If no per-topic configuration is given the server default is used. The override can be set at topic creation time by giving one or more `--config` options. This example creates a topic named _my-topic_ with a custom max message size and flush rate: 
 
 ```bash
 $ bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --topic my-topic --partitions 1 \

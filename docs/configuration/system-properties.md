@@ -1,6 +1,6 @@
 ---
 title: System Properties
-description: System Properties
+description: Java system properties used to configure Kafka components.
 weight: 10
 tags: ['kafka', 'docs']
 aliases: 
@@ -90,7 +90,7 @@ Default Value:
 
   * #### org.apache.kafka.disallowed.login.modules
 
-This system property is used to disable the problematic login modules usage in SASL JAAS configuration. This property accepts comma-separated list of loginModule names. By default **com.sun.security.auth.module.JndiLoginModule** and **com.sun.security.auth.module.LdapLoginModule** loginModule is disabled. 
+This system property is used to disable the problematic login modules usage in SASL JAAS configuration. This property accepts comma-separated list of loginModule names. By default, **com.sun.security.auth.module.JndiLoginModule** and **com.sun.security.auth.module.LdapLoginModule** are disabled. 
 
 If users want to enable JndiLoginModule or LdapLoginModule, users need to explicitly reset the system property like below. We advise the users to validate configurations and only allow trusted JNDI configurations. For more details [CVE-2023-25194](/community/cve-list/#CVE-2023-25194). 
 

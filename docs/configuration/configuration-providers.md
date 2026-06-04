@@ -1,6 +1,6 @@
 ---
 title: Configuration Providers
-description: Configuration Providers
+description: Kafka configuration providers for loading configuration values from external sources.
 weight: 12
 tags: ['kafka', 'docs']
 aliases: 
@@ -77,7 +77,7 @@ Each file represents a key, and its content is the value. This provider is usefu
 
 To restrict the files that the `DirectoryConfigProvider` can access, use the `allowed.paths` parameter. This parameter accepts a comma-separated list of paths that the provider is allowed to access. If not set, all paths are allowed.
 
-**Example`DirectoryConfigProvider` configuration**
+**Example `DirectoryConfigProvider` configuration**
 
 ```properties
 config.providers=dirProvider
@@ -101,7 +101,7 @@ This provider is useful for configuring applications running in containers, for 
 
 To restrict which environment variables the `EnvVarConfigProvider` can access, use the `allowlist.pattern` parameter. This parameter accepts a regular expression that environment variable names must match to be used by the provider.
 
-**Example`EnvVarConfigProvider` configuration**
+**Example `EnvVarConfigProvider` configuration**
 
 ```properties
 config.providers=envVarProvider
@@ -123,7 +123,7 @@ This provider is useful for loading configuration data from mounted files.
 
 To restrict the file paths that the `FileConfigProvider` can access, use the `allowed.paths` parameter. This parameter accepts a comma-separated list of paths that the provider is allowed to access. If not set, all paths are allowed.
 
-**Example`FileConfigProvider` configuration**
+**Example `FileConfigProvider` configuration**
 
 ```properties
 config.providers=fileProvider
@@ -150,7 +150,7 @@ dbPassword=my-password
 
 Specify a `FileConfigProvider` in the Kafka Connect configuration: 
 
-**Example Kafka Connect configuration with a`FileConfigProvider`**
+**Example Kafka Connect configuration with a `FileConfigProvider`**
 
 ```properties
 config.providers=fileProvider
