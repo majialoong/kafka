@@ -1,6 +1,6 @@
 ---
 title: Write a streams app
-description: 
+description: Tutorial for writing Kafka Streams applications.
 weight: 3
 tags: ['kafka', 'docs']
 aliases: 

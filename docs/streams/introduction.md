@@ -1,6 +1,6 @@
 ---
 title: Introduction
-description: 
+description: Introduction to Kafka Streams and stream processing applications.
 weight: 1
 tags: ['kafka', 'docs']
 aliases: 

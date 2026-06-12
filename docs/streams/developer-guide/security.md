@@ -1,6 +1,6 @@
 ---
 title: Streams Security
-description: 
+description: Kafka Streams security configuration for clients and applications.
 weight: 12
 tags: ['kafka', 'docs']
 aliases: 

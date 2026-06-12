@@ -1,6 +1,6 @@
 ---
 title: Core Concepts
-description: 
+description: Core concepts behind Kafka Streams applications and processing guarantees.
 weight: 4
 tags: ['kafka', 'docs']
 aliases: 
