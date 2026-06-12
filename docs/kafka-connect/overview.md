@@ -1,6 +1,6 @@
 ---
 title: Overview
-description: Overview
+description: Overview of Kafka Connect for scalable data integration with Kafka.
 weight: 1
 tags: ['kafka', 'docs']
 aliases: 
