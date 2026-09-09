@@ -53,8 +53,6 @@ import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class RepartitionWithMergeOptimizingTest {
@@ -161,8 +159,8 @@ public class RepartitionWithMergeOptimizingTest {
         assertEquals(expectedNumberRepartitionTopics, getCountOfRepartitionTopicsFound(topologyString));
 
         // Verify the expected output
-        assertThat(countOutputTopic.readKeyValuesToMap(), equalTo(keyValueListToMap(expectedCountKeyValues)));
-        assertThat(stringCountOutputTopic.readKeyValuesToMap(), equalTo(keyValueListToMap(expectedStringCountKeyValues)));
+        assertEquals(keyValueListToMap(expectedCountKeyValues), countOutputTopic.readKeyValuesToMap());
+        assertEquals(keyValueListToMap(expectedStringCountKeyValues), stringCountOutputTopic.readKeyValuesToMap());
     }
 
     private <K, V> Map<K, V> keyValueListToMap(final List<KeyValue<K, V>> keyValuePairs) {

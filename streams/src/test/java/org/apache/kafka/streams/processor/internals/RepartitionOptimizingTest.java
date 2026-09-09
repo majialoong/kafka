@@ -67,8 +67,6 @@ import java.util.regex.Pattern;
 
 import static java.time.Duration.ofDays;
 import static java.time.Duration.ofMillis;
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @SuppressWarnings("deprecation")
@@ -214,14 +212,14 @@ public class RepartitionOptimizingTest {
         assertEquals(expectedNumberRepartitionTopics, getCountOfRepartitionTopicsFound(topologyString));
 
         // Verify the values collected by the processor
-        assertThat(3, equalTo(processorValueCollector.size()));
-        assertThat(processorValueCollector, equalTo(expectedCollectedProcessorValues));
+        assertEquals(3, processorValueCollector.size());
+        assertEquals(expectedCollectedProcessorValues, processorValueCollector);
 
         // Verify the expected output
-        assertThat(countOutputTopic.readKeyValuesToMap(), equalTo(keyValueListToMap(expectedCountKeyValues)));
-        assertThat(aggregationOutputTopic.readKeyValuesToMap(), equalTo(keyValueListToMap(expectedAggKeyValues)));
-        assertThat(reduceOutputTopic.readKeyValuesToMap(), equalTo(keyValueListToMap(expectedReduceKeyValues)));
-        assertThat(joinedOutputTopic.readKeyValuesToMap(), equalTo(keyValueListToMap(expectedJoinKeyValues)));
+        assertEquals(keyValueListToMap(expectedCountKeyValues), countOutputTopic.readKeyValuesToMap());
+        assertEquals(keyValueListToMap(expectedAggKeyValues), aggregationOutputTopic.readKeyValuesToMap());
+        assertEquals(keyValueListToMap(expectedReduceKeyValues), reduceOutputTopic.readKeyValuesToMap());
+        assertEquals(keyValueListToMap(expectedJoinKeyValues), joinedOutputTopic.readKeyValuesToMap());
     }
 
     @Test
@@ -253,7 +251,7 @@ public class RepartitionOptimizingTest {
 
         inputTopic.pipeKeyValueList(getKeyValues());
 
-        assertThat(outputTopic.readKeyValuesToMap(), equalTo(keyValueListToMap(expectedAggKeyValues)));
+        assertEquals(keyValueListToMap(expectedAggKeyValues), outputTopic.readKeyValuesToMap());
     }
 
     private <K, V> Map<K, V> keyValueListToMap(final List<KeyValue<K, V>> keyValuePairs) {
