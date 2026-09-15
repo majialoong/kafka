@@ -19,16 +19,26 @@ package org.apache.kafka.server.quota;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.internals.Plugin;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.metrics.Quota;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.common.utils.internals.Sanitizer;
 import org.apache.kafka.metadata.publisher.QuotaConfigChangeListener;
+import org.apache.kafka.metadata.publisher.QuotaEntity.UserClientQuotaEntity;
 import org.apache.kafka.server.config.AbstractKafkaConfig;
 import org.apache.kafka.server.config.ClientQuotaManagerConfig;
 import org.apache.kafka.server.config.QuotaConfig;
 import org.apache.kafka.server.config.ReplicationQuotaManagerConfig;
+import org.apache.kafka.server.quota.ClientQuotaEntity.ConfigEntity;
+import org.apache.kafka.server.quota.ClientQuotaManager.ClientIdEntity;
+import org.apache.kafka.server.quota.ClientQuotaManager.UserEntity;
 
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 
+import static org.apache.kafka.server.quota.ClientQuotaManager.DEFAULT_USER_CLIENT_ID;
+import static org.apache.kafka.server.quota.ClientQuotaManager.DEFAULT_USER_ENTITY;
 
 public class QuotaFactory {
 
@@ -72,6 +82,27 @@ public class QuotaFactory {
                 produce.updateQuotaMetricConfigs();
                 request.updateQuotaMetricConfigs();
                 controllerMutation.updateQuotaMetricConfigs();
+            };
+        }
+
+        public Map<String, BiConsumer<UserClientQuotaEntity, Optional<Quota>>> userClientQuotaUpdaters() {
+            return Map.of(
+                QuotaConfig.CONSUMER_BYTE_RATE_OVERRIDE_CONFIG, userClientQuotaUpdater(fetch),
+                QuotaConfig.PRODUCER_BYTE_RATE_OVERRIDE_CONFIG, userClientQuotaUpdater(produce),
+                QuotaConfig.REQUEST_PERCENTAGE_OVERRIDE_CONFIG, userClientQuotaUpdater(request),
+                QuotaConfig.CONTROLLER_MUTATION_RATE_OVERRIDE_CONFIG, userClientQuotaUpdater(controllerMutation)
+            );
+        }
+
+        private static BiConsumer<UserClientQuotaEntity, Optional<Quota>> userClientQuotaUpdater(ClientQuotaManager manager) {
+            return (entity, quota) -> {
+                // User/client quota updates use default entities named "<default>" and empty optionals for absent dimensions.
+                // Only explicit user names are sanitized; client IDs are passed through unchanged.
+                Optional<ConfigEntity> userEntity = entity.userEntity()
+                    .map(user -> user.isDefault() ? DEFAULT_USER_ENTITY : new UserEntity(Sanitizer.sanitize(user.name())));
+                Optional<ConfigEntity> clientIdEntity = entity.clientIdEntity()
+                    .map(clientId -> clientId.isDefault() ? DEFAULT_USER_CLIENT_ID : new ClientIdEntity(clientId.name()));
+                manager.updateQuota(userEntity, clientIdEntity, quota);
             };
         }
     }
