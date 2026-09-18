@@ -80,7 +80,7 @@ public class ClientQuotaMetadataManagerTest {
         List<ClientQuotaRecord.EntityData> entities = List.of(
             entity(USER, "CN=alice,OU=users"), entity(CLIENT_ID, "client/id"));
         ClientQuotasDelta update = delta(record(entities, key, 123.5, false));
-        UserClientQuotaEntity expectedEntity = new QuotaEntity.ExplicitUserExplicitClientIdEntity("CN=alice,OU=users", "client/id");
+        UserClientQuotaEntity expectedEntity = QuotaEntity.userClient("CN=alice,OU=users", "client/id");
 
         manager.accept(update);
         manager.accept(delta(record(entities, key, 0, true)));
@@ -94,26 +94,26 @@ public class ClientQuotaMetadataManagerTest {
 
     private static Stream<Arguments> userClientQuotaEntities() {
         return Stream.of(
-            Arguments.of(List.of(entity(USER, "user")), new QuotaEntity.UserEntity("user")),
-            Arguments.of(List.of(entity(USER, null)), new QuotaEntity.DefaultUserEntity()),
-            Arguments.of(List.of(entity(CLIENT_ID, "client")), new QuotaEntity.ClientIdEntity("client")),
-            Arguments.of(List.of(entity(CLIENT_ID, null)), new QuotaEntity.DefaultClientIdEntity()),
+            Arguments.of(List.of(entity(USER, "user")), QuotaEntity.user("user")),
+            Arguments.of(List.of(entity(USER, null)), QuotaEntity.user(null)),
+            Arguments.of(List.of(entity(CLIENT_ID, "client")), QuotaEntity.clientId("client")),
+            Arguments.of(List.of(entity(CLIENT_ID, null)), QuotaEntity.clientId(null)),
             Arguments.of(List.of(entity(USER, "user"), entity(CLIENT_ID, "client")),
-                new QuotaEntity.ExplicitUserExplicitClientIdEntity("user", "client")),
+                QuotaEntity.userClient("user", "client")),
             Arguments.of(List.of(entity(USER, "user"), entity(CLIENT_ID, null)),
-                new QuotaEntity.ExplicitUserDefaultClientIdEntity("user")),
+                QuotaEntity.userClient("user", null)),
             Arguments.of(List.of(entity(USER, null), entity(CLIENT_ID, "client")),
-                new QuotaEntity.DefaultUserExplicitClientIdEntity("client")),
+                QuotaEntity.userClient(null, "client")),
             Arguments.of(List.of(entity(USER, null), entity(CLIENT_ID, null)),
-                new QuotaEntity.DefaultUserDefaultClientIdEntity()),
-            Arguments.of(List.of(entity(USER, "")), new QuotaEntity.UserEntity("")),
-            Arguments.of(List.of(entity(CLIENT_ID, "")), new QuotaEntity.ClientIdEntity("")),
+                QuotaEntity.userClient(null, null)),
+            Arguments.of(List.of(entity(USER, "")), QuotaEntity.user("")),
+            Arguments.of(List.of(entity(CLIENT_ID, "")), QuotaEntity.clientId("")),
             Arguments.of(List.of(entity(USER, ""), entity(CLIENT_ID, "")),
-                new QuotaEntity.ExplicitUserExplicitClientIdEntity("", "")),
+                QuotaEntity.userClient("", "")),
             Arguments.of(List.of(entity(USER, "user /+*"), entity(CLIENT_ID, "client /+*")),
-                new QuotaEntity.ExplicitUserExplicitClientIdEntity("user /+*", "client /+*")),
+                QuotaEntity.userClient("user /+*", "client /+*")),
             Arguments.of(List.of(entity(USER, "<default>"), entity(CLIENT_ID, "<default>")),
-                new QuotaEntity.ExplicitUserExplicitClientIdEntity("<default>", "<default>"))
+                QuotaEntity.userClient("<default>", "<default>"))
         );
     }
 

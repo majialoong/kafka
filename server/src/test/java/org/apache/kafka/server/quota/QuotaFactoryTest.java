@@ -62,22 +62,20 @@ public class QuotaFactoryTest extends BaseClientQuotaManagerTest {
         var user = new ClientQuotaManager.UserEntity("user");
         var client = new ClientQuotaManager.ClientIdEntity("client");
         return Stream.of(
-            Arguments.of(new QuotaEntity.UserEntity("user"), user, null),
-            Arguments.of(new QuotaEntity.DefaultUserEntity(), ClientQuotaManager.DEFAULT_USER_ENTITY, null),
-            Arguments.of(new QuotaEntity.ClientIdEntity("client"), null, client),
-            Arguments.of(new QuotaEntity.DefaultClientIdEntity(), null, ClientQuotaManager.DEFAULT_USER_CLIENT_ID),
-            Arguments.of(new QuotaEntity.ExplicitUserExplicitClientIdEntity("user", "client"), user, client),
-            Arguments.of(new QuotaEntity.ExplicitUserDefaultClientIdEntity("user"), user, ClientQuotaManager.DEFAULT_USER_CLIENT_ID),
-            Arguments.of(new QuotaEntity.DefaultUserExplicitClientIdEntity("client"), ClientQuotaManager.DEFAULT_USER_ENTITY, client),
-            Arguments.of(new QuotaEntity.DefaultUserDefaultClientIdEntity(),
+            Arguments.of(QuotaEntity.user("user"), user, null),
+            Arguments.of(QuotaEntity.user(null), ClientQuotaManager.DEFAULT_USER_ENTITY, null),
+            Arguments.of(QuotaEntity.clientId("client"), null, client),
+            Arguments.of(QuotaEntity.clientId(null), null, ClientQuotaManager.DEFAULT_USER_CLIENT_ID),
+            Arguments.of(QuotaEntity.userClient("user", "client"), user, client),
+            Arguments.of(QuotaEntity.userClient(null, null),
                 ClientQuotaManager.DEFAULT_USER_ENTITY, ClientQuotaManager.DEFAULT_USER_CLIENT_ID),
-            Arguments.of(new QuotaEntity.UserEntity(""), new ClientQuotaManager.UserEntity(""), null),
-            Arguments.of(new QuotaEntity.ClientIdEntity(""), null, new ClientQuotaManager.ClientIdEntity("")),
-            Arguments.of(new QuotaEntity.ExplicitUserExplicitClientIdEntity("", ""),
+            Arguments.of(QuotaEntity.user(""), new ClientQuotaManager.UserEntity(""), null),
+            Arguments.of(QuotaEntity.clientId(""), null, new ClientQuotaManager.ClientIdEntity("")),
+            Arguments.of(QuotaEntity.userClient("", ""),
                 new ClientQuotaManager.UserEntity(""), new ClientQuotaManager.ClientIdEntity("")),
-            Arguments.of(new QuotaEntity.ExplicitUserExplicitClientIdEntity("user /+*", "client /+*"),
+            Arguments.of(QuotaEntity.userClient("user /+*", "client /+*"),
                 new ClientQuotaManager.UserEntity("user%20%2F%2B%2A"), new ClientQuotaManager.ClientIdEntity("client /+*")),
-            Arguments.of(new QuotaEntity.ExplicitUserExplicitClientIdEntity("<default>", "<default>"),
+            Arguments.of(QuotaEntity.userClient("<default>", "<default>"),
                 new ClientQuotaManager.UserEntity("%3Cdefault%3E"), new ClientQuotaManager.ClientIdEntity("<default>"))
         );
     }
@@ -93,7 +91,7 @@ public class QuotaFactoryTest extends BaseClientQuotaManagerTest {
         );
         var userClientQuotaUpdaters = managers.userClientQuotaUpdaters();
         assertEquals(expectedManagers.keySet(), userClientQuotaUpdaters.keySet());
-        var entity = new QuotaEntity.ExplicitUserExplicitClientIdEntity("user", "client");
+        var entity = QuotaEntity.userClient("user", "client");
         var quota = Optional.of(Quota.upperBound(123));
         Optional<ClientQuotaEntity.ConfigEntity> user = Optional.of(new ClientQuotaManager.UserEntity("user"));
         Optional<ClientQuotaEntity.ConfigEntity> client = Optional.of(new ClientQuotaManager.ClientIdEntity("client"));
@@ -144,7 +142,7 @@ public class QuotaFactoryTest extends BaseClientQuotaManagerTest {
         ClientQuotaManager manager = new ClientQuotaManager(config, metrics, QuotaType.PRODUCE, time, "");
         try {
             var userClientQuotaUpdater = quotaManagers(manager).userClientQuotaUpdaters().get(PRODUCER_BYTE_RATE_OVERRIDE_CONFIG);
-            var entity = new QuotaEntity.DefaultUserDefaultClientIdEntity();
+            var entity = QuotaEntity.userClient(null, null);
             userClientQuotaUpdater.accept(entity, Optional.of(Quota.upperBound(2000)));
             assertEquals(2000, manager.quota("user", "client").bound());
             assertTrue(maybeRecord(manager, "user", "client", 2500 * config.numQuotaSamples()) > 0);

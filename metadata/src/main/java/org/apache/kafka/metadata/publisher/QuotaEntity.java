@@ -35,8 +35,7 @@ public sealed interface QuotaEntity {
     static Optional<QuotaEntity> fromClientQuotaEntity(ClientQuotaEntity entity) {
         Map<String, String> entries = entity.entries();
         if (entries.containsKey(IP)) {
-            String ip = entries.get(IP);
-            return Optional.of(ip == null ? new DefaultIpEntity() : new IpEntity(ip));
+            return Optional.of(new IpEntity(Optional.ofNullable(entries.get(IP))));
         }
 
         // Each user and client ID dimension can be explicit, default, or absent.
@@ -46,24 +45,36 @@ public sealed interface QuotaEntity {
         String user = entries.get(USER);
         String clientId = entries.get(CLIENT_ID);
         if (hasUser && hasClientId) {
-            if (user == null && clientId == null) {
-                return Optional.of(new DefaultUserDefaultClientIdEntity());
-            }
-            if (user == null) {
-                return Optional.of(new DefaultUserExplicitClientIdEntity(clientId));
-            }
-            if (clientId == null) {
-                return Optional.of(new ExplicitUserDefaultClientIdEntity(user));
-            }
-            return Optional.of(new ExplicitUserExplicitClientIdEntity(user, clientId));
+            return Optional.of(userClient(user, clientId));
         }
         if (hasUser) {
-            return Optional.of(user == null ? new DefaultUserEntity() : new UserEntity(user));
+            return Optional.of(user(user));
         }
         if (hasClientId) {
-            return Optional.of(clientId == null ? new DefaultClientIdEntity() : new ClientIdEntity(clientId));
+            return Optional.of(clientId(clientId));
         }
         return Optional.empty();
+    }
+
+    /**
+     * Creates a user-only quota entity. A null name denotes the default user.
+     */
+    static UserClientQuotaEntity user(String user) {
+        return new UserClientQuotaEntity(Optional.of(new EntityName(user)), Optional.empty());
+    }
+
+    /**
+     * Creates a client-ID-only quota entity. A null name denotes the default client ID.
+     */
+    static UserClientQuotaEntity clientId(String clientId) {
+        return new UserClientQuotaEntity(Optional.empty(), Optional.of(new EntityName(clientId)));
+    }
+
+    /**
+     * Creates a user + client ID quota entity. A null name in either dimension denotes its default.
+     */
+    static UserClientQuotaEntity userClient(String user, String clientId) {
+        return new UserClientQuotaEntity(Optional.of(new EntityName(user)), Optional.of(new EntityName(clientId)));
     }
 
     /**
@@ -75,113 +86,15 @@ public sealed interface QuotaEntity {
         }
     }
 
-    sealed interface UserClientQuotaEntity extends QuotaEntity {
-        /**
-         * Returns the user entity, or empty if the user dimension is absent.
-         */
-        default Optional<EntityName> userEntity() {
-            return Optional.empty();
-        }
+    /**
+     * An IP quota entity. An empty address denotes the default IP entity.
+     */
+    record IpEntity(Optional<String> ipAddress) implements QuotaEntity { }
 
-        /**
-         * Returns the client ID entity, or empty if the client ID dimension is absent.
-         */
-        default Optional<EntityName> clientIdEntity() {
-            return Optional.empty();
-        }
-    }
-
-    sealed interface IpQuotaEntity extends QuotaEntity {
-        /**
-         * Returns the address from metadata, or an empty Optional for the default IP entity.
-         */
-        default Optional<String> ipAddress() {
-            return Optional.empty();
-        }
-    }
-
-    record IpEntity(String ip) implements IpQuotaEntity {
-        @Override
-        public Optional<String> ipAddress() {
-            return Optional.of(ip);
-        }
-    }
-
-    record DefaultIpEntity() implements IpQuotaEntity { }
-
-    record UserEntity(String user) implements UserClientQuotaEntity {
-        @Override
-        public Optional<EntityName> userEntity() {
-            return Optional.of(new EntityName(user));
-        }
-    }
-
-    record DefaultUserEntity() implements UserClientQuotaEntity {
-        @Override
-        public Optional<EntityName> userEntity() {
-            return Optional.of(new EntityName(null));
-        }
-    }
-
-    record ClientIdEntity(String clientId) implements UserClientQuotaEntity {
-        @Override
-        public Optional<EntityName> clientIdEntity() {
-            return Optional.of(new EntityName(clientId));
-        }
-    }
-
-    record DefaultClientIdEntity() implements UserClientQuotaEntity {
-        @Override
-        public Optional<EntityName> clientIdEntity() {
-            return Optional.of(new EntityName(null));
-        }
-    }
-
-    record ExplicitUserExplicitClientIdEntity(String user, String clientId) implements UserClientQuotaEntity {
-        @Override
-        public Optional<EntityName> userEntity() {
-            return Optional.of(new EntityName(user));
-        }
-
-        @Override
-        public Optional<EntityName> clientIdEntity() {
-            return Optional.of(new EntityName(clientId));
-        }
-    }
-
-    record ExplicitUserDefaultClientIdEntity(String user) implements UserClientQuotaEntity {
-        @Override
-        public Optional<EntityName> userEntity() {
-            return Optional.of(new EntityName(user));
-        }
-
-        @Override
-        public Optional<EntityName> clientIdEntity() {
-            return Optional.of(new EntityName(null));
-        }
-    }
-
-    record DefaultUserExplicitClientIdEntity(String clientId) implements UserClientQuotaEntity {
-        @Override
-        public Optional<EntityName> userEntity() {
-            return Optional.of(new EntityName(null));
-        }
-
-        @Override
-        public Optional<EntityName> clientIdEntity() {
-            return Optional.of(new EntityName(clientId));
-        }
-    }
-
-    record DefaultUserDefaultClientIdEntity() implements UserClientQuotaEntity {
-        @Override
-        public Optional<EntityName> userEntity() {
-            return Optional.of(new EntityName(null));
-        }
-
-        @Override
-        public Optional<EntityName> clientIdEntity() {
-            return Optional.of(new EntityName(null));
-        }
-    }
+    /**
+     * A user and/or client ID quota entity. Each dimension is empty when absent, otherwise
+     * holds an {@link EntityName} that may be the default (null name).
+     */
+    record UserClientQuotaEntity(Optional<EntityName> userEntity, Optional<EntityName> clientIdEntity)
+        implements QuotaEntity { }
 }

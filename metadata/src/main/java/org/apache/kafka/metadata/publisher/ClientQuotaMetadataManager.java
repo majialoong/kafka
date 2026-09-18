@@ -20,7 +20,7 @@ import org.apache.kafka.common.metrics.Quota;
 import org.apache.kafka.common.quota.ClientQuotaEntity;
 import org.apache.kafka.image.ClientQuotaDelta;
 import org.apache.kafka.image.ClientQuotasDelta;
-import org.apache.kafka.metadata.publisher.QuotaEntity.IpQuotaEntity;
+import org.apache.kafka.metadata.publisher.QuotaEntity.IpEntity;
 import org.apache.kafka.metadata.publisher.QuotaEntity.UserClientQuotaEntity;
 import org.apache.kafka.server.config.QuotaConfig;
 
@@ -31,7 +31,6 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalDouble;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
@@ -59,15 +58,15 @@ public class ClientQuotaMetadataManager implements Consumer<ClientQuotasDelta> {
 
     private void update(ClientQuotaEntity entity, ClientQuotaDelta quotaDelta) {
         QuotaEntity.fromClientQuotaEntity(entity).ifPresentOrElse(quotaEntity -> {
-            if (quotaEntity instanceof IpQuotaEntity ipEntity) {
+            if (quotaEntity instanceof IpEntity ipEntity) {
                 handleIpQuota(ipEntity, quotaDelta);
             } else if (quotaEntity instanceof UserClientQuotaEntity userClientEntity) {
-                quotaDelta.changes().forEach((key, value) -> handleUserClientQuotaChange(userClientEntity, key, value));
+                handleUserClientQuota(userClientEntity, quotaDelta);
             }
         }, () -> log.warn("Ignoring unsupported quota entity {}.", entity));
     }
 
-    private void handleIpQuota(IpQuotaEntity ipEntity, ClientQuotaDelta quotaDelta) {
+    private void handleIpQuota(IpEntity ipEntity, ClientQuotaDelta quotaDelta) {
         // An empty Optional identifies the default IP entity.
         Optional<InetAddress> address = ipEntity.ipAddress().map(ip -> {
             try {
@@ -91,18 +90,20 @@ public class ClientQuotaMetadataManager implements Consumer<ClientQuotasDelta> {
         });
     }
 
-    private void handleUserClientQuotaChange(UserClientQuotaEntity entity, String key, OptionalDouble newValue) {
-        BiConsumer<UserClientQuotaEntity, Optional<Quota>> userClientQuotaUpdater = userClientQuotaUpdaters.get(key);
-        if (userClientQuotaUpdater == null) {
-            log.warn("Ignoring unexpected quota key {} for entity {}", key, entity);
-            return;
-        }
+    private void handleUserClientQuota(UserClientQuotaEntity entity, ClientQuotaDelta quotaDelta) {
+        quotaDelta.changes().forEach((key, value) -> {
+            BiConsumer<UserClientQuotaEntity, Optional<Quota>> userClientQuotaUpdater = userClientQuotaUpdaters.get(key);
+            if (userClientQuotaUpdater == null) {
+                log.warn("Ignoring unexpected quota key {} for entity {}", key, entity);
+                return;
+            }
 
-        Optional<Quota> quota = newValue.isPresent() ? Optional.of(Quota.upperBound(newValue.getAsDouble())) : Optional.empty();
-        try {
-            userClientQuotaUpdater.accept(entity, quota);
-        } catch (Throwable t) {
-            log.error("Failed to update user-client quota {}", entity, t);
-        }
+            Optional<Quota> quota = value.isPresent() ? Optional.of(Quota.upperBound(value.getAsDouble())) : Optional.empty();
+            try {
+                userClientQuotaUpdater.accept(entity, quota);
+            } catch (Throwable t) {
+                log.error("Failed to update user-client quota {}", entity, t);
+            }
+        });
     }
 }
