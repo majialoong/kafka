@@ -31,8 +31,6 @@ import org.apache.kafka.server.config.ClientQuotaManagerConfig;
 import org.apache.kafka.server.config.QuotaConfig;
 import org.apache.kafka.server.config.ReplicationQuotaManagerConfig;
 import org.apache.kafka.server.quota.ClientQuotaEntity.ConfigEntity;
-import org.apache.kafka.server.quota.ClientQuotaManager.ClientIdEntity;
-import org.apache.kafka.server.quota.ClientQuotaManager.UserEntity;
 
 import java.util.Map;
 import java.util.Optional;
@@ -102,11 +100,11 @@ public class QuotaFactory {
                 // Only explicit user names are sanitized; client IDs are passed through unchanged.
                 Optional<ConfigEntity> userEntity = entity.userEntity()
                     .map(user -> user instanceof QuotaEntity.UserEntity explicitUser
-                        ? new UserEntity(Sanitizer.sanitize(explicitUser.user()))
+                        ? new ClientQuotaManager.UserEntity(Sanitizer.sanitize(explicitUser.user()))
                         : DEFAULT_USER_ENTITY);
                 Optional<ConfigEntity> clientIdEntity = entity.clientIdEntity()
                     .map(clientId -> clientId instanceof QuotaEntity.ClientIdEntity explicitClientId
-                        ? new ClientIdEntity(explicitClientId.clientId())
+                        ? new ClientQuotaManager.ClientIdEntity(explicitClientId.clientId())
                         : DEFAULT_USER_CLIENT_ID);
                 Optional<Quota> quota = newValue.isPresent() ? Optional.of(Quota.upperBound(newValue.getAsDouble())) : Optional.empty();
                 manager.updateQuota(userEntity, clientIdEntity, quota);

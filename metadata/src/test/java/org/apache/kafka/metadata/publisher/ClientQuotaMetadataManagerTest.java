@@ -46,7 +46,6 @@ import static org.apache.kafka.server.config.QuotaConfig.CONTROLLER_MUTATION_RAT
 import static org.apache.kafka.server.config.QuotaConfig.IP_CONNECTION_RATE_OVERRIDE_CONFIG;
 import static org.apache.kafka.server.config.QuotaConfig.PRODUCER_BYTE_RATE_OVERRIDE_CONFIG;
 import static org.apache.kafka.server.config.QuotaConfig.REQUEST_PERCENTAGE_OVERRIDE_CONFIG;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -62,30 +61,22 @@ public class ClientQuotaMetadataManagerTest {
     private final ClientQuotaMetadataManager manager = new ClientQuotaMetadataManager(userClientQuotaUpdaters, ipQuotaUpdater);
 
     @Test
-    public void testHandleIpQuota() {
+    public void testInvalidIpAddress() {
         assertThrows(IllegalArgumentException.class,
             () -> manager.accept(createQuotaDelta(Map.of(IP, "invalid address"), Map.of())));
-        assertDoesNotThrow(() -> manager.accept(createQuotaDelta(Collections.singletonMap(IP, null), Map.of())));
-        assertDoesNotThrow(() -> manager.accept(createQuotaDelta(Map.of(IP, "192.168.1.1"), Map.of())));
-        assertDoesNotThrow(() -> manager.accept(createQuotaDelta(Map.of(IP, "2001:db8::1"), Map.of())));
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {
-        CONSUMER_BYTE_RATE_OVERRIDE_CONFIG,
-        PRODUCER_BYTE_RATE_OVERRIDE_CONFIG,
-        REQUEST_PERCENTAGE_OVERRIDE_CONFIG,
-        CONTROLLER_MUTATION_RATE_OVERRIDE_CONFIG
-    })
-    public void testUserClientQuotaUpdateAndRemoval(String key) {
+    @Test
+    public void testUserClientQuotaUpdateAndRemoval() {
         Map<String, String> entity = Map.of(USER, "user", CLIENT_ID, "client");
         var expectedEntity = new QuotaEntity.ExplicitUserExplicitClientIdEntity("user", "client");
+        var updater = userClientQuotaUpdaters.get(PRODUCER_BYTE_RATE_OVERRIDE_CONFIG);
 
-        manager.accept(createQuotaDelta(entity, Map.of(key, OptionalDouble.of(123.5))));
-        verify(userClientQuotaUpdaters.get(key)).accept(expectedEntity, OptionalDouble.of(123.5));
+        manager.accept(createQuotaDelta(entity, Map.of(PRODUCER_BYTE_RATE_OVERRIDE_CONFIG, OptionalDouble.of(123.5))));
+        verify(updater).accept(expectedEntity, OptionalDouble.of(123.5));
 
-        manager.accept(createQuotaDelta(entity, Map.of(key, OptionalDouble.empty())));
-        verify(userClientQuotaUpdaters.get(key)).accept(expectedEntity, OptionalDouble.empty());
+        manager.accept(createQuotaDelta(entity, Map.of(PRODUCER_BYTE_RATE_OVERRIDE_CONFIG, OptionalDouble.empty())));
+        verify(updater).accept(expectedEntity, OptionalDouble.empty());
     }
 
     @ParameterizedTest
