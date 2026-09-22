@@ -10808,6 +10808,7 @@ class KafkaApisTest extends Logging {
         .setProducerId(12345L)
         .setProducerEpoch(15)
         .setTransactionStartTimeMs(time.milliseconds())
+        .setTransactionLastUpdateTimeMs(time.milliseconds() + 100)
         .setTransactionState("CompleteCommit")
         .setTransactionTimeoutMs(10000))
 
@@ -10827,6 +10828,7 @@ class KafkaApisTest extends Logging {
     assertEquals(12345L, fooState.producerId)
     assertEquals(15, fooState.producerEpoch)
     assertEquals(time.milliseconds(), fooState.transactionStartTimeMs)
+    assertEquals(time.milliseconds() + 100, fooState.transactionLastUpdateTimeMs)
     assertEquals("CompleteCommit", fooState.transactionState)
     assertEquals(10000, fooState.transactionTimeoutMs)
     assertEquals(List.empty, fooState.topics.asScala.toList)
@@ -10880,6 +10882,7 @@ class KafkaApisTest extends Logging {
       .setProducerId(12345L)
       .setProducerEpoch(15)
       .setTransactionStartTimeMs(time.milliseconds())
+      .setTransactionLastUpdateTimeMs(time.milliseconds() + 100)
       .setTransactionState("Ongoing")
       .setTransactionTimeoutMs(10000)
 
@@ -10899,6 +10902,7 @@ class KafkaApisTest extends Logging {
     assertEquals(12345L, fooState.producerId)
     assertEquals(15, fooState.producerEpoch)
     assertEquals(time.milliseconds(), fooState.transactionStartTimeMs)
+    assertEquals(time.milliseconds() + 100, fooState.transactionLastUpdateTimeMs)
     assertEquals("Ongoing", fooState.transactionState)
     assertEquals(10000, fooState.transactionTimeoutMs)
     assertEquals(List(mkTopicData(topic = "foo", Seq(1, 2))), fooState.topics.asScala.toList)
