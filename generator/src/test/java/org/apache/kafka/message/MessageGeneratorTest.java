@@ -148,9 +148,16 @@ public class MessageGeneratorTest {
 
     private static MessageSpec spec(int apiKey, String type, String name, String validVersions,
                                     String flexibleVersions, String headerVersions) throws Exception {
+        return spec(apiKey, type, name, validVersions, flexibleVersions, headerVersions, null);
+    }
+
+    private static MessageSpec spec(int apiKey, String type, String name, String validVersions,
+                                    String flexibleVersions, String headerVersions,
+                                    String deprecatedVersions) throws Exception {
         String json = "{'apiKey': " + apiKey + ", 'type': '" + type + "', 'name': '" + name + "', " +
             "'validVersions': '" + validVersions + "', 'flexibleVersions': '" + flexibleVersions + "'" +
             (headerVersions == null ? "" : ", 'headerVersions': " + headerVersions) +
+            (deprecatedVersions == null ? "" : ", 'deprecatedVersions': '" + deprecatedVersions + "'") +
             ", 'fields': [{'name': 'Field1', 'type': 'int32', 'versions': '0+'}]}";
         return MessageGenerator.JSON_SERDE.readValue(json.replace('\'', '"'), MessageSpec.class);
     }
@@ -286,6 +293,36 @@ public class MessageGeneratorTest {
             "} else {\n" +
             "return (short) 1;\n" +
             "}\n"), source);
+    }
+
+    @Test
+    public void testDeprecatedVersionsInApiMessageType() throws Exception {
+        String source = generateApiMessageTypeSource(
+            spec(8, "request", "GarplyRequest", "1-5", "0+", "{'0+': '2'}", "1-2"),
+            spec(8, "response", "GarplyResponse", "1-5", "0+", "{'0+': '1'}"));
+        assertTrue(source.contains(
+            "GARPLY(\"Garply\", (short) 8, GarplyRequestData.SCHEMAS, GarplyResponseData.SCHEMAS, " +
+            "(short) 1, (short) 5, (short) 1, (short) 2, EnumSet.noneOf(ListenerType.class), false);"), source);
+    }
+
+    @Test
+    public void testNoDeprecatedVersionsInApiMessageType() throws Exception {
+        String source = generateApiMessageTypeSource(
+            spec(9, "request", "FredRequest", "0-5", "0+", "{'0+': '2'}"),
+            spec(9, "response", "FredResponse", "0-5", "0+", "{'0+': '1'}"));
+        assertTrue(source.contains(
+            "FRED(\"Fred\", (short) 9, FredRequestData.SCHEMAS, FredResponseData.SCHEMAS, " +
+            "(short) 0, (short) 5, (short) 0, (short) -1, EnumSet.noneOf(ListenerType.class), false);"), source);
+    }
+
+    @Test
+    public void testDeprecatedVersionsOfResponseAreIgnored() throws Exception {
+        String source = generateApiMessageTypeSource(
+            spec(10, "request", "PlughRequest", "0-5", "0+", "{'0+': '2'}"),
+            spec(10, "response", "PlughResponse", "0-5", "0+", "{'0+': '1'}", "0-1"));
+        assertTrue(source.contains(
+            "PLUGH(\"Plugh\", (short) 10, PlughRequestData.SCHEMAS, PlughResponseData.SCHEMAS, " +
+            "(short) 0, (short) 5, (short) 0, (short) -1, EnumSet.noneOf(ListenerType.class), false);"), source);
     }
 
     private static final String REQUEST_HEADER_JSON =

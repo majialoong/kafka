@@ -158,6 +158,19 @@ Number of errors in responses counted per-request-type, per-error-code. If a res
 <tr>  
 <td>
 
+Deprecated request rate
+</td>
+<td>
+
+kafka.network:type=RequestMetrics,name=DeprecatedRequestsPerSec,request=([-.\w]+),version=([0-9]+),clientSoftwareName=(.*),clientSoftwareVersion=(.*)
+</td>
+<td>
+
+Rate of requests using a deprecated API version, counted per-request-type, per-version, per-client-software. Deprecated versions are still supported but may be removed in a future release, so a non-zero rate identifies clients that should be upgraded or configured to use newer API versions. The metric is only created once such a request is received.
+</td> </tr>
+<tr>
+<td>
+
 Produce request rate
 </td>  
 <td>

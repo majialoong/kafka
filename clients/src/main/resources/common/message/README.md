@@ -38,6 +38,33 @@ Dropping support for old message versions is no longer allowed without a KIP.
 Therefore, please be careful not to increase the lower end of the version
 support interval for any message.
 
+Deprecated Versions
+-------------------
+A request may also specify a top-level field named "deprecatedVersions."  This
+marks a range of versions, which should be within "validVersions", as
+deprecated.  For example, a request with "validVersions": "0-5" and
+"deprecatedVersions": "0-1" still accepts versions 0 and 1, but they are
+reported as deprecated.  If "deprecatedVersions" is not specified, no version is
+deprecated.  Only the request spec is consulted; any "deprecatedVersions" in
+the corresponding response spec is ignored.
+
+Marking a version as deprecated does not change how the request is handled.
+It only affects observability on the broker:
+
+* The `kafka.network:type=RequestMetrics,name=DeprecatedRequestsPerSec` metric
+  is recorded for the request, tagged with the request name, API version, and
+  client software name and version.
+
+* The request log entry includes `"requestApiVersionDeprecated": true` in the
+  request header section, and is logged at INFO level instead of DEBUG.
+  To enable these entries, configure `kafka.request.logger` at INFO or a more
+  verbose level.  The default configuration sets it to WARN.
+
+This gives operators a way to find clients which still use old versions before
+those versions are removed.  Deprecating and then removing versions requires a
+KIP; see KIP-896 for an example.  Once the deprecated versions are removed from
+"validVersions", "deprecatedVersions" should be removed as well.
+
 MessageData Objects
 -------------------
 Using the JSON files in this directory, we generate Java code for MessageData
