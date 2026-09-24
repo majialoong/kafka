@@ -773,10 +773,8 @@ public class Cleaner {
      * @param maxLogMessageSize The maximum size in bytes for record allowed
      * @param transactionMetadata The state of ongoing transactions for the log between offset range to build
      * @param stats Collector for cleaning statistics
-     * @param maxRecordBodySize The maximum decompressed per-record body size of the corresponding topic; records in
-     *                          legacy batches exceeding it are rejected with an InvalidRecordException before
-     *                          allocation. Records in v2 batches are not bounded since their bodies are not
-     *                          materialized
+     * @param maxRecordBodySize The maximum decompressed per-record body size of the corresponding topic; records
+     *                          exceeding it are rejected with an InvalidRecordException before allocation
      *
      * @return If the map was filled whilst loading from this segment
      */
@@ -852,17 +850,18 @@ public class Cleaner {
                                            CleanerStats stats,
                                            int maxRecordBodySize) throws DigestException {
         if (batch instanceof DefaultRecordBatch defaultBatch) {
-            // Keys are fed to the map before their records are returned, and only putKey changes the map size,
-            // so testing the same filter again tells whether the fed key has to be put.
+            // The key of a record is fed to the map within next() iff it is non-empty and the filter accepts it. Only
+            // putKey changes the map size, so for a keyed record at or after the start offset, a non-empty key has
+            // been fed iff the map is not full. An empty key is never fed, and putKey then hashes nothing, which is
+            // the same hash as map.put computes for the empty key.
             LongPredicate shouldIndex = offset -> offset >= startOffset && map.size() < maxDesiredMapSize;
-            try (CloseableIterator<Record> recordsIterator = defaultBatch.skipValueIterator(decompressionBufferSupplier, shouldIndex, map::updateKey)) {
+            try (CloseableIterator<Record> recordsIterator = defaultBatch.skipValueIterator(decompressionBufferSupplier,
+                    maxRecordBodySize, shouldIndex, map::updateKey)) {
                 for (Record record : (Iterable<Record>) () -> recordsIterator) {
                     if (record.hasKey() && record.offset() >= startOffset) {
-                        if (shouldIndex.test(record.offset())) {
-                            map.putKey(record.offset());
-                        } else {
+                        if (map.size() >= maxDesiredMapSize)
                             return true;
-                        }
+                        map.putKey(record.offset());
                     }
                     stats.indexMessagesRead(1);
                 }

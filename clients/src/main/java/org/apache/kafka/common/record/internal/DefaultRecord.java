@@ -388,6 +388,33 @@ public class DefaultRecord implements Record {
                                                          int baseSequence,
                                                          Long logAppendTime,
                                                          int maxRecordBodySize) throws IOException {
+        return readPartiallyFrom(input, readTotalSizeInBytes(input, maxRecordBodySize), baseOffset, baseTimestamp,
+            baseSequence, logAppendTime, null, null, null);
+    }
+
+    /**
+     * Skip-decode a record from the (decompressed) stream, rejecting any record whose declared body size exceeds
+     * {@code maxRecordBodySize}. If {@code keyFilter} accepts the offset of a record with a non-empty key, the key
+     * is passed to {@code keyConsumer} in chunks of at most {@code keyChunk.capacity()} bytes; otherwise, the key
+     * is skipped. The chunks are backed by {@code keyChunk}, so the consumer must not retain them.
+     */
+    static PartialDefaultRecord readPartiallyFrom(InputStream input,
+                                                  long baseOffset,
+                                                  long baseTimestamp,
+                                                  int baseSequence,
+                                                  Long logAppendTime,
+                                                  int maxRecordBodySize,
+                                                  LongPredicate keyFilter,
+                                                  ByteBuffer keyChunk,
+                                                  Consumer<ByteBuffer> keyConsumer) throws IOException {
+        Objects.requireNonNull(keyFilter, "keyFilter");
+        Objects.requireNonNull(keyChunk, "keyChunk");
+        Objects.requireNonNull(keyConsumer, "keyConsumer");
+        return readPartiallyFrom(input, readTotalSizeInBytes(input, maxRecordBodySize), baseOffset, baseTimestamp,
+            baseSequence, logAppendTime, keyFilter, keyChunk, keyConsumer);
+    }
+
+    private static int readTotalSizeInBytes(InputStream input, int maxRecordBodySize) throws IOException {
         int sizeOfBodyInBytes = ByteUtils.readVarint(input);
         if (sizeOfBodyInBytes < 0)
             throw new InvalidRecordException("Invalid record size: " + sizeOfBodyInBytes + " is negative.");
@@ -397,37 +424,7 @@ public class DefaultRecord implements Record {
         if (sizeOfBodyInBytes > maxRecordBodySize)
             throw new InvalidRecordException("Invalid record size: " + sizeOfBodyInBytes +
                 " exceeds the configured maximum record size of " + maxRecordBodySize + ".");
-        int totalSizeInBytes = ByteUtils.sizeOfVarint(sizeOfBodyInBytes) + sizeOfBodyInBytes;
-
-        return readPartiallyFrom(input, totalSizeInBytes, baseOffset, baseTimestamp,
-            baseSequence, logAppendTime, null, null, null);
-    }
-
-    /**
-     * Skip-decode a record from the (decompressed) stream. If {@code keyFilter} accepts the offset of the record,
-     * its key is passed to {@code keyConsumer} in chunks of at most {@code keyChunk.capacity()} bytes; otherwise,
-     * the key is skipped. The chunks are backed by {@code keyChunk}, so the consumer must not retain them. The
-     * consumer is not called for a null or empty key. Since neither the key nor the value is materialized, the
-     * declared body size is not bounded by a configured maximum.
-     */
-    public static PartialDefaultRecord readPartiallyFrom(InputStream input,
-                                                         long baseOffset,
-                                                         long baseTimestamp,
-                                                         int baseSequence,
-                                                         Long logAppendTime,
-                                                         LongPredicate keyFilter,
-                                                         ByteBuffer keyChunk,
-                                                         Consumer<ByteBuffer> keyConsumer) throws IOException {
-        Objects.requireNonNull(keyFilter, "keyFilter");
-        Objects.requireNonNull(keyChunk, "keyChunk");
-        Objects.requireNonNull(keyConsumer, "keyConsumer");
-        int sizeOfBodyInBytes = ByteUtils.readVarint(input);
-        if (sizeOfBodyInBytes < 0)
-            throw new InvalidRecordException("Invalid record size: " + sizeOfBodyInBytes + " is negative.");
-        int totalSizeInBytes = ByteUtils.sizeOfVarint(sizeOfBodyInBytes) + sizeOfBodyInBytes;
-
-        return readPartiallyFrom(input, totalSizeInBytes, baseOffset, baseTimestamp,
-            baseSequence, logAppendTime, keyFilter, keyChunk, keyConsumer);
+        return ByteUtils.sizeOfVarint(sizeOfBodyInBytes) + sizeOfBodyInBytes;
     }
 
     private static PartialDefaultRecord readPartiallyFrom(InputStream input,
@@ -453,7 +450,7 @@ public class DefaultRecord implements Record {
                 RecordBatch.NO_SEQUENCE;
 
             int keySize = ByteUtils.readVarint(input);
-            if (keyConsumer != null && keyFilter.test(offset))
+            if (keySize > 0 && keyConsumer != null && keyFilter.test(offset))
                 readInChunks(input, keySize, keyChunk, keyConsumer);
             else
                 skipBytes(input, keySize);

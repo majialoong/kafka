@@ -43,6 +43,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -685,7 +686,7 @@ public class DefaultRecordBatchTest {
 
         ByteArrayOutputStream key = new ByteArrayOutputStream();
         try (BufferSupplier bufferSupplier = BufferSupplier.create();
-             CloseableIterator<Record> iterator = batch.skipValueIterator(bufferSupplier, offset -> true, appendTo(key))) {
+             CloseableIterator<Record> iterator = batch.skipValueIterator(bufferSupplier, Records.SOFT_MAX_ARRAY_LENGTH, offset -> true, appendTo(key))) {
             for (int i = 0; i < simpleRecords.size(); i++) {
                 SimpleRecord expected = simpleRecords.get(i);
                 Record record = iterator.next();
@@ -711,23 +712,83 @@ public class DefaultRecordBatchTest {
         DefaultRecordBatch batch = new DefaultRecordBatch(records.buffer());
 
         ByteArrayOutputStream keys = new ByteArrayOutputStream();
-        try (CloseableIterator<Record> iterator = batch.skipValueIterator(BufferSupplier.NO_CACHING, offset -> offset != 1L, appendTo(keys))) {
+        try (CloseableIterator<Record> iterator = batch.skipValueIterator(BufferSupplier.NO_CACHING, Records.SOFT_MAX_ARRAY_LENGTH,
+                offset -> offset != 1L, appendTo(keys))) {
             assertEquals(List.of(0L, 1L, 2L), Utils.toList(iterator).stream().map(Record::offset).collect(Collectors.toList()));
         }
         assertArrayEquals("ac".getBytes(), keys.toByteArray());
     }
 
+    @ParameterizedTest
+    @EnumSource(value = CompressionType.class)
+    public void testSkipValueIteratorEvaluatesKeyFilterOnlyForReturnedRecords(CompressionType compressionType) {
+        MemoryRecords records = MemoryRecords.withRecords(RecordBatch.MAGIC_VALUE_V2, 0L,
+            Compression.of(compressionType).build(), TimestampType.CREATE_TIME,
+            new SimpleRecord(1L, "a".getBytes(), "1".getBytes()),
+            new SimpleRecord(2L, "b".getBytes(), "2".getBytes()),
+            new SimpleRecord(3L, "c".getBytes(), "3".getBytes()));
+        DefaultRecordBatch batch = new DefaultRecordBatch(records.buffer());
+
+        // callers may rely on the filter not being evaluated for a record ahead of the returned one
+        List<Long> evaluatedOffsets = new ArrayList<>();
+        List<Long> returnedOffsets = new ArrayList<>();
+        try (CloseableIterator<Record> iterator = batch.skipValueIterator(BufferSupplier.NO_CACHING, Records.SOFT_MAX_ARRAY_LENGTH, offset -> {
+            evaluatedOffsets.add(offset);
+            return true;
+        }, chunk -> { })) {
+            while (iterator.hasNext()) {
+                assertEquals(returnedOffsets, evaluatedOffsets);
+                returnedOffsets.add(iterator.next().offset());
+                assertEquals(returnedOffsets, evaluatedOffsets);
+            }
+        }
+        assertEquals(List.of(0L, 1L, 2L), returnedOffsets);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CompressionType.class)
+    public void testSkipValueIteratorEvaluatesKeyFilterOnlyForNonEmptyKeys(CompressionType compressionType) {
+        MemoryRecords records = MemoryRecords.withRecords(RecordBatch.MAGIC_VALUE_V2, 0L,
+            Compression.of(compressionType).build(), TimestampType.CREATE_TIME,
+            new SimpleRecord(1L, "a".getBytes(), "1".getBytes()),
+            new SimpleRecord(2L, null, "2".getBytes()),
+            new SimpleRecord(3L, new byte[0], "3".getBytes()),
+            new SimpleRecord(4L, "b".getBytes(), "4".getBytes()));
+        DefaultRecordBatch batch = new DefaultRecordBatch(records.buffer());
+
+        List<Long> evaluatedOffsets = new ArrayList<>();
+        try (CloseableIterator<Record> iterator = batch.skipValueIterator(BufferSupplier.NO_CACHING, Records.SOFT_MAX_ARRAY_LENGTH, offset -> {
+            evaluatedOffsets.add(offset);
+            return true;
+        }, chunk -> { })) {
+            assertEquals(4, Utils.toList(iterator).size());
+        }
+        assertEquals(List.of(0L, 3L), evaluatedOffsets);
+    }
+
     @Test
-    public void testSkipValueIteratorDoesNotBoundRecordBodySize() {
-        // the record body is larger than the configured maximum used by testCompressedIteratorsEnforceConfiguredMaxRecordBodySize
+    public void testSkipValueIteratorEnforcesConfiguredMaxRecordBodySize() {
         DefaultRecordBatch batch = recordBatchWithValueSize(1000);
+
         ByteArrayOutputStream key = new ByteArrayOutputStream();
-        try (CloseableIterator<Record> iterator = batch.skipValueIterator(BufferSupplier.NO_CACHING, offset -> true, appendTo(key))) {
-            Record record = iterator.next();
-            assertEquals(1000, record.valueSize());
+        try (CloseableIterator<Record> iterator = batch.skipValueIterator(BufferSupplier.NO_CACHING, 10_000, offset -> true, appendTo(key))) {
+            assertEquals(1000, iterator.next().valueSize());
             assertFalse(iterator.hasNext());
         }
         assertArrayEquals("key".getBytes(), key.toByteArray());
+
+        try (CloseableIterator<Record> iterator = batch.skipValueIterator(BufferSupplier.NO_CACHING, 100, offset -> true, chunk -> { })) {
+            InvalidRecordException ex = assertThrows(InvalidRecordException.class, iterator::next);
+            assertTrue(ex.getMessage().contains("exceeds the configured maximum record size"),
+                "expected the configured-maximum guard, got: " + ex.getMessage());
+        }
+
+        // as in streamingIterator, uncompressed records are not checked against the configured maximum
+        DefaultRecordBatch uncompressed = new DefaultRecordBatch(MemoryRecords.withRecords(Compression.NONE,
+            new SimpleRecord("key".getBytes(), new byte[1000])).buffer());
+        try (CloseableIterator<Record> iterator = uncompressed.skipValueIterator(BufferSupplier.NO_CACHING, 100, offset -> true, chunk -> { })) {
+            assertEquals(1000, iterator.next().valueSize());
+        }
     }
 
     @Test
@@ -736,7 +797,7 @@ public class DefaultRecordBatchTest {
         Set<ByteBuffer> keyChunks = Collections.newSetFromMap(new IdentityHashMap<>());
         try (BufferSupplier bufferSupplier = BufferSupplier.create()) {
             for (int i = 0; i < 2; i++) {
-                try (CloseableIterator<Record> iterator = batch.skipValueIterator(bufferSupplier, offset -> true, keyChunks::add)) {
+                try (CloseableIterator<Record> iterator = batch.skipValueIterator(bufferSupplier, Records.SOFT_MAX_ARRAY_LENGTH, offset -> true, keyChunks::add)) {
                     iterator.next();
                 }
             }

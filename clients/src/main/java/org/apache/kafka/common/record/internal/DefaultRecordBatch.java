@@ -366,16 +366,20 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
     }
 
     /**
-     * Iterate over the records without materializing their bodies. Before a record is returned, its key is passed
-     * to {@code keyConsumer} if {@code keyFilter} accepts the offset of the record, possibly in multiple chunks which
-     * must not be retained by the consumer. {@code keyFilter} is evaluated while the record is read, i.e. within
-     * {@link Iterator#next()}, and never for a record ahead of the returned one. The consumer is not called for a
-     * null or empty key. The value and headers of compressed records are skipped, so only the metadata,
-     * {@link Record#hasKey()} and {@link Record#hasValue()} of the returned records should be accessed. Unlike
-     * {@link #streamingIterator(BufferSupplier, int)}, the record body size is not bounded by a configured maximum
-     * since nothing is allocated based on it.
+     * Iterate over the records without materializing their bodies. Before a record with a non-empty key is
+     * returned, its key is passed to {@code keyConsumer} if {@code keyFilter} accepts the offset of the record,
+     * possibly in multiple chunks which must not be retained by the consumer. {@code keyFilter} is only evaluated for
+     * records with a non-empty key, while the record is read, i.e. within {@link Iterator#next()}, and never for a
+     * record ahead of the returned one. Like {@link #skipKeyValueIterator(BufferSupplier, int)}, this returns
+     * complete records for an uncompressed batch but partial records for a compressed batch, whose
+     * {@link Record#key()}, {@link Record#value()} and {@link Record#headers()} throw
+     * {@link UnsupportedOperationException}. Hence, only the metadata, {@link Record#hasKey()} and
+     * {@link Record#hasValue()} of the returned records should be accessed. As in
+     * {@link #streamingIterator(BufferSupplier, int)}, only a compressed record whose declared body size exceeds
+     * {@code maxRecordBodySize} is rejected with an {@link InvalidRecordException}.
      */
     public CloseableIterator<Record> skipValueIterator(BufferSupplier bufferSupplier,
+                                                       int maxRecordBodySize,
                                                        LongPredicate keyFilter,
                                                        Consumer<ByteBuffer> keyConsumer) {
         if (count() == 0)
@@ -410,7 +414,7 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
             @Override
             protected Record doReadRecord(long baseOffset, long baseTimestamp, int baseSequence, Long logAppendTime) throws IOException {
                 return DefaultRecord.readPartiallyFrom(inputStream, baseOffset, baseTimestamp, baseSequence, logAppendTime,
-                    keyFilter, keyChunk, keyConsumer);
+                    maxRecordBodySize, keyFilter, keyChunk, keyConsumer);
             }
 
             @Override

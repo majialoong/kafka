@@ -579,6 +579,18 @@ public class DefaultRecordTest {
     }
 
     @Test
+    public void testReadPartiallyFromStreamWithKeyConsumerRejectsBodySizeExceedingConfiguredMax() throws IOException {
+        byte[] rec = recordWithForgedBodySize(1000);
+        try (InputStream in = new ByteBufferInputStream(ByteBuffer.wrap(rec))) {
+            InvalidRecordException ex = assertThrows(InvalidRecordException.class,
+                () -> DefaultRecord.readPartiallyFrom(in, 0L, 0L, RecordBatch.NO_SEQUENCE, null, 100,
+                    offset -> true, ByteBuffer.allocate(4), chunk -> { }));
+            assertTrue(ex.getMessage().contains("exceeds the configured maximum record size"),
+                "expected the configured-maximum guard, got: " + ex.getMessage());
+        }
+    }
+
+    @Test
     public void testReadPartiallyFromStreamPassesKeyInChunks() throws IOException {
         byte[] key = "0123456789".getBytes();
         byte[] value = "value".getBytes();
@@ -589,7 +601,7 @@ public class DefaultRecordTest {
         List<Integer> chunkSizes = new ArrayList<>();
         try (InputStream in = new ByteBufferInputStream(buffer.duplicate())) {
             PartialDefaultRecord record = DefaultRecord.readPartiallyFrom(in, 10L, 100L, RecordBatch.NO_SEQUENCE, null,
-                offset -> true, ByteBuffer.allocate(4), chunk -> {
+                Records.SOFT_MAX_ARRAY_LENGTH, offset -> true, ByteBuffer.allocate(4), chunk -> {
                     chunkSizes.add(chunk.remaining());
                     byte[] bytes = new byte[chunk.remaining()];
                     chunk.get(bytes);
@@ -612,7 +624,8 @@ public class DefaultRecordTest {
         ByteBuffer buffer = serialize(0, 0L, null, null, new Header[0]);
         try (InputStream in = new ByteBufferInputStream(buffer)) {
             PartialDefaultRecord record = DefaultRecord.readPartiallyFrom(in, 0L, 0L, RecordBatch.NO_SEQUENCE, null,
-                offset -> true, ByteBuffer.allocate(4), chunk -> fail("the consumer should not be called for a null key"));
+                Records.SOFT_MAX_ARRAY_LENGTH, offset -> fail("the filter should not be evaluated for a null key"),
+                ByteBuffer.allocate(4), chunk -> fail("the consumer should not be called for a null key"));
             assertFalse(record.hasKey());
             assertFalse(record.hasValue());
         }
@@ -624,7 +637,7 @@ public class DefaultRecordTest {
         List<Long> filteredOffsets = new ArrayList<>();
         try (InputStream in = new ByteBufferInputStream(buffer)) {
             PartialDefaultRecord record = DefaultRecord.readPartiallyFrom(in, 10L, 0L, RecordBatch.NO_SEQUENCE, null,
-                offset -> {
+                Records.SOFT_MAX_ARRAY_LENGTH, offset -> {
                     filteredOffsets.add(offset);
                     return false;
                 }, ByteBuffer.allocate(4), chunk -> fail("the consumer should not be called for a filtered key"));
@@ -643,7 +656,8 @@ public class DefaultRecordTest {
         buffer.limit(8);
         try (InputStream in = new ByteBufferInputStream(buffer)) {
             InvalidRecordException ex = assertThrows(InvalidRecordException.class,
-                () -> DefaultRecord.readPartiallyFrom(in, 0L, 0L, RecordBatch.NO_SEQUENCE, null, offset -> true, ByteBuffer.allocate(4), chunk -> { }));
+                () -> DefaultRecord.readPartiallyFrom(in, 0L, 0L, RecordBatch.NO_SEQUENCE, null, Records.SOFT_MAX_ARRAY_LENGTH,
+                    offset -> true, ByteBuffer.allocate(4), chunk -> { }));
             assertTrue(ex.getMessage().contains("Reached end of input stream"),
                 "expected the end-of-stream error, got: " + ex.getMessage());
         }

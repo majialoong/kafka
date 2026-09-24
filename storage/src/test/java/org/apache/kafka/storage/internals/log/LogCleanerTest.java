@@ -384,11 +384,12 @@ public class LogCleanerTest {
     }
 
     /**
-     * Building the offset map only needs the key of each record, so a compressed record whose decompressed body
-     * exceeds max.decompressed.message.bytes is indexed instead of being rejected.
+     * Building the offset map rejects a compressed record whose decompressed body exceeds
+     * max.decompressed.message.bytes, as the cleaning phase does, instead of scanning the dirty section only to fail
+     * when cleaning it.
      */
     @Test
-    public void testBuildOffsetMapIndexesRecordExceedingConfiguredMaxDecompressedMessageBytes() throws IOException, DigestException {
+    public void testBuildOffsetMapRejectsRecordExceedingConfiguredMaxDecompressedMessageBytes() throws IOException {
         Cleaner cleaner = makeCleaner(10);
         Properties logProps = new Properties();
         logProps.put(TopicConfig.CLEANUP_POLICY_CONFIG, TopicConfig.CLEANUP_POLICY_COMPACT);
@@ -405,8 +406,10 @@ public class LogCleanerTest {
         log.roll();
 
         LogTestUtils.FakeOffsetMap map = new LogTestUtils.FakeOffsetMap(Integer.MAX_VALUE);
-        cleaner.buildOffsetMap(log, 0L, log.activeSegment().baseOffset(), map, new CleanerStats(Time.SYSTEM));
-        assertEquals(Map.of("k1", 2L, "k2", 1L), map.map());
+        InvalidRecordException e = assertThrows(InvalidRecordException.class,
+            () -> cleaner.buildOffsetMap(log, 0L, log.activeSegment().baseOffset(), map, new CleanerStats(Time.SYSTEM)));
+        assertTrue(e.getMessage().contains("exceeds the configured maximum record size"),
+            "expected the configured-maximum guard message, got: " + e.getMessage());
     }
 
     @Test
