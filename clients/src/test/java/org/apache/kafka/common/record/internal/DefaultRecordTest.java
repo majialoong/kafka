@@ -26,16 +26,21 @@ import org.apache.kafka.common.utils.internals.SingleByteBufferOutputStream;
 
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 public class DefaultRecordTest {
     @Test
@@ -571,6 +576,86 @@ public class DefaultRecordTest {
             assertTrue(ex.getMessage().contains("exceeds the configured maximum record size"),
                 "expected the configured-maximum guard, got: " + ex.getMessage());
         }
+    }
+
+    @Test
+    public void testReadPartiallyFromStreamPassesKeyInChunks() throws IOException {
+        byte[] key = "0123456789".getBytes();
+        byte[] value = "value".getBytes();
+        Header[] headers = {new RecordHeader("h", "v".getBytes())};
+        ByteBuffer buffer = serialize(3, 5L, key, value, headers);
+
+        ByteArrayOutputStream readKey = new ByteArrayOutputStream();
+        List<Integer> chunkSizes = new ArrayList<>();
+        try (InputStream in = new ByteBufferInputStream(buffer.duplicate())) {
+            PartialDefaultRecord record = DefaultRecord.readPartiallyFrom(in, 10L, 100L, RecordBatch.NO_SEQUENCE, null,
+                offset -> true, ByteBuffer.allocate(4), chunk -> {
+                    chunkSizes.add(chunk.remaining());
+                    byte[] bytes = new byte[chunk.remaining()];
+                    chunk.get(bytes);
+                    readKey.writeBytes(bytes);
+                });
+            assertEquals(13L, record.offset());
+            assertEquals(105L, record.timestamp());
+            assertEquals(key.length, record.keySize());
+            assertEquals(value.length, record.valueSize());
+            assertEquals(buffer.remaining(), record.sizeInBytes());
+            // the value and headers are skipped, so nothing is left in the stream
+            assertEquals(-1, in.read());
+        }
+        assertEquals(List.of(4, 4, 2), chunkSizes);
+        assertArrayEquals(key, readKey.toByteArray());
+    }
+
+    @Test
+    public void testReadPartiallyFromStreamDoesNotPassNullKey() throws IOException {
+        ByteBuffer buffer = serialize(0, 0L, null, null, new Header[0]);
+        try (InputStream in = new ByteBufferInputStream(buffer)) {
+            PartialDefaultRecord record = DefaultRecord.readPartiallyFrom(in, 0L, 0L, RecordBatch.NO_SEQUENCE, null,
+                offset -> true, ByteBuffer.allocate(4), chunk -> fail("the consumer should not be called for a null key"));
+            assertFalse(record.hasKey());
+            assertFalse(record.hasValue());
+        }
+    }
+
+    @Test
+    public void testReadPartiallyFromStreamSkipsFilteredKey() throws IOException {
+        ByteBuffer buffer = serialize(3, 0L, "key".getBytes(), "value".getBytes(), new Header[0]);
+        List<Long> filteredOffsets = new ArrayList<>();
+        try (InputStream in = new ByteBufferInputStream(buffer)) {
+            PartialDefaultRecord record = DefaultRecord.readPartiallyFrom(in, 10L, 0L, RecordBatch.NO_SEQUENCE, null,
+                offset -> {
+                    filteredOffsets.add(offset);
+                    return false;
+                }, ByteBuffer.allocate(4), chunk -> fail("the consumer should not be called for a filtered key"));
+            assertEquals(3, record.keySize());
+            assertEquals(5, record.valueSize());
+            // the filtered key is skipped, so nothing is left in the stream
+            assertEquals(-1, in.read());
+        }
+        assertEquals(List.of(13L), filteredOffsets);
+    }
+
+    @Test
+    public void testReadPartiallyFromStreamRejectsTruncatedKey() throws IOException {
+        ByteBuffer buffer = serialize(0, 0L, "0123456789".getBytes(), "v".getBytes(), new Header[0]);
+        // size, attributes, timestamp delta, offset delta and key size take one byte each, so only 3 key bytes remain
+        buffer.limit(8);
+        try (InputStream in = new ByteBufferInputStream(buffer)) {
+            InvalidRecordException ex = assertThrows(InvalidRecordException.class,
+                () -> DefaultRecord.readPartiallyFrom(in, 0L, 0L, RecordBatch.NO_SEQUENCE, null, offset -> true, ByteBuffer.allocate(4), chunk -> { }));
+            assertTrue(ex.getMessage().contains("Reached end of input stream"),
+                "expected the end-of-stream error, got: " + ex.getMessage());
+        }
+    }
+
+    private static ByteBuffer serialize(int offsetDelta, long timestampDelta, byte[] key, byte[] value, Header[] headers) throws IOException {
+        ByteBufferOutputStream out = new SingleByteBufferOutputStream(1024);
+        DefaultRecord.writeTo(new DataOutputStream(out), offsetDelta, timestampDelta,
+            key == null ? null : ByteBuffer.wrap(key), value == null ? null : ByteBuffer.wrap(value), headers);
+        ByteBuffer buffer = out.buffer();
+        buffer.flip();
+        return buffer;
     }
 
     // A genuinely-serialized record decodes when the configured limit is generous, and is rejected

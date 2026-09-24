@@ -39,6 +39,8 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.OptionalLong;
+import java.util.function.Consumer;
+import java.util.function.LongPredicate;
 
 import static org.apache.kafka.common.record.internal.Records.LOG_OVERHEAD;
 
@@ -135,6 +137,9 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
     private static final int CONTROL_FLAG_MASK = 0x20;
     private static final byte DELETE_HORIZON_FLAG_MASK = 0x40;
     private static final byte TIMESTAMP_TYPE_MASK = 0x08;
+
+    // visible for testing
+    static final int KEY_CHUNK_SIZE = 4096;
 
     private final ByteBuffer buffer;
 
@@ -358,6 +363,65 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
         // we define this to be a closable iterator so that caller (i.e. the log validator) needs to close it
         // while we can save memory footprint of not decompressing the full record set ahead of time
         return compressedIterator(bufferSupplier, true, maxRecordBodySize);
+    }
+
+    /**
+     * Iterate over the records without materializing their bodies. Before a record is returned, its key is passed
+     * to {@code keyConsumer} if {@code keyFilter} accepts the offset of the record, possibly in multiple chunks which
+     * must not be retained by the consumer. {@code keyFilter} is evaluated while the record is read, i.e. within
+     * {@link Iterator#next()}, and never for a record ahead of the returned one. The consumer is not called for a
+     * null or empty key. The value and headers of compressed records are skipped, so only the metadata,
+     * {@link Record#hasKey()} and {@link Record#hasValue()} of the returned records should be accessed. Unlike
+     * {@link #streamingIterator(BufferSupplier, int)}, the record body size is not bounded by a configured maximum
+     * since nothing is allocated based on it.
+     */
+    public CloseableIterator<Record> skipValueIterator(BufferSupplier bufferSupplier,
+                                                       LongPredicate keyFilter,
+                                                       Consumer<ByteBuffer> keyConsumer) {
+        if (count() == 0)
+            return CloseableIterator.wrap(Collections.emptyIterator());
+
+        if (!isCompressed()) {
+            CloseableIterator<Record> iterator = uncompressedIterator();
+            return new CloseableIterator<>() {
+                @Override
+                public boolean hasNext() {
+                    return iterator.hasNext();
+                }
+
+                @Override
+                public Record next() {
+                    Record record = iterator.next();
+                    if (record.keySize() > 0 && keyFilter.test(record.offset()))
+                        keyConsumer.accept(record.key());
+                    return record;
+                }
+
+                @Override
+                public void close() {
+                    iterator.close();
+                }
+            };
+        }
+
+        final InputStream inputStream = recordInputStream(bufferSupplier);
+        final ByteBuffer keyChunk = bufferSupplier.get(KEY_CHUNK_SIZE);
+        return new StreamRecordIterator(inputStream) {
+            @Override
+            protected Record doReadRecord(long baseOffset, long baseTimestamp, int baseSequence, Long logAppendTime) throws IOException {
+                return DefaultRecord.readPartiallyFrom(inputStream, baseOffset, baseTimestamp, baseSequence, logAppendTime,
+                    keyFilter, keyChunk, keyConsumer);
+            }
+
+            @Override
+            public void close() {
+                try {
+                    super.close();
+                } finally {
+                    bufferSupplier.release(keyChunk);
+                }
+            }
+        };
     }
 
     @Override

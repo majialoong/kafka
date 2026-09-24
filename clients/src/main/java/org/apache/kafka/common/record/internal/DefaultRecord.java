@@ -30,6 +30,8 @@ import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.function.LongPredicate;
 
 import static org.apache.kafka.common.record.internal.RecordBatch.MAGIC_VALUE_V2;
 
@@ -398,7 +400,34 @@ public class DefaultRecord implements Record {
         int totalSizeInBytes = ByteUtils.sizeOfVarint(sizeOfBodyInBytes) + sizeOfBodyInBytes;
 
         return readPartiallyFrom(input, totalSizeInBytes, baseOffset, baseTimestamp,
-            baseSequence, logAppendTime);
+            baseSequence, logAppendTime, null, null, null);
+    }
+
+    /**
+     * Skip-decode a record from the (decompressed) stream. If {@code keyFilter} accepts the offset of the record,
+     * its key is passed to {@code keyConsumer} in chunks of at most {@code keyChunk.capacity()} bytes; otherwise,
+     * the key is skipped. The chunks are backed by {@code keyChunk}, so the consumer must not retain them. The
+     * consumer is not called for a null or empty key. Since neither the key nor the value is materialized, the
+     * declared body size is not bounded by a configured maximum.
+     */
+    public static PartialDefaultRecord readPartiallyFrom(InputStream input,
+                                                         long baseOffset,
+                                                         long baseTimestamp,
+                                                         int baseSequence,
+                                                         Long logAppendTime,
+                                                         LongPredicate keyFilter,
+                                                         ByteBuffer keyChunk,
+                                                         Consumer<ByteBuffer> keyConsumer) throws IOException {
+        Objects.requireNonNull(keyFilter, "keyFilter");
+        Objects.requireNonNull(keyChunk, "keyChunk");
+        Objects.requireNonNull(keyConsumer, "keyConsumer");
+        int sizeOfBodyInBytes = ByteUtils.readVarint(input);
+        if (sizeOfBodyInBytes < 0)
+            throw new InvalidRecordException("Invalid record size: " + sizeOfBodyInBytes + " is negative.");
+        int totalSizeInBytes = ByteUtils.sizeOfVarint(sizeOfBodyInBytes) + sizeOfBodyInBytes;
+
+        return readPartiallyFrom(input, totalSizeInBytes, baseOffset, baseTimestamp,
+            baseSequence, logAppendTime, keyFilter, keyChunk, keyConsumer);
     }
 
     private static PartialDefaultRecord readPartiallyFrom(InputStream input,
@@ -406,7 +435,10 @@ public class DefaultRecord implements Record {
                                                           long baseOffset,
                                                           long baseTimestamp,
                                                           int baseSequence,
-                                                          Long logAppendTime) throws IOException {
+                                                          Long logAppendTime,
+                                                          LongPredicate keyFilter,
+                                                          ByteBuffer keyChunk,
+                                                          Consumer<ByteBuffer> keyConsumer) throws IOException {
         try {
             byte attributes = (byte) input.read();
             long timestampDelta = ByteUtils.readVarlong(input);
@@ -420,9 +452,11 @@ public class DefaultRecord implements Record {
                 DefaultRecordBatch.incrementSequence(baseSequence, offsetDelta) :
                 RecordBatch.NO_SEQUENCE;
 
-            // skip key
             int keySize = ByteUtils.readVarint(input);
-            skipBytes(input, keySize);
+            if (keyConsumer != null && keyFilter.test(offset))
+                readInChunks(input, keySize, keyChunk, keyConsumer);
+            else
+                skipBytes(input, keySize);
 
             // skip value
             int valueSize = ByteUtils.readVarint(input);
@@ -459,7 +493,7 @@ public class DefaultRecord implements Record {
      * No-op for case where bytesToSkip <= 0. This could occur for cases where field is expected to be null.
      * @throws InvalidRecordException if end of stream is encountered before we could skip required bytes.
      * @throws IOException is an I/O error occurs while trying to skip from InputStream.
-     * 
+     *
      * @see java.io.InputStream#skip(long)
      */
     private static void skipBytes(InputStream in, int bytesToSkip) throws IOException {
@@ -482,6 +516,26 @@ public class DefaultRecord implements Record {
             } else { // skipped negative or too many bytes
                 throw new IOException("Unable to skip exactly");
             }
+        }
+    }
+
+    /**
+     * Reads exactly {@code bytesToRead} bytes from the input stream into {@code chunk}, passing each filled chunk
+     * to {@code consumer}. No-op for case where bytesToRead <= 0.
+     *
+     * @throws InvalidRecordException if end of stream is encountered before we could read required bytes.
+     */
+    private static void readInChunks(InputStream in, int bytesToRead, ByteBuffer chunk, Consumer<ByteBuffer> consumer) throws IOException {
+        while (bytesToRead > 0) {
+            chunk.clear();
+            chunk.limit(Math.min(bytesToRead, chunk.capacity()));
+            int bytesRead = Utils.readFully(in, chunk);
+            if (chunk.hasRemaining())
+                throw new InvalidRecordException("Reached end of input stream before reading all bytes. " +
+                    "Remaining bytes:" + (bytesToRead - bytesRead));
+            chunk.flip();
+            consumer.accept(chunk);
+            bytesToRead -= bytesRead;
         }
     }
 

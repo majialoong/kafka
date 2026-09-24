@@ -131,6 +131,68 @@ public class OffsetMapTest {
         assertThrows(NoSuchAlgorithmException.class, () -> new SkimpyOffsetMap(MEMORY_SIZE, "NOT-A-REAL-HASH"));
     }
 
+    @ParameterizedTest
+    @MethodSource("hashAlgorithms")
+    public void testPutKeyInChunks(String algorithm) throws Exception {
+        SkimpyOffsetMap map = new SkimpyOffsetMap(MEMORY_SIZE, algorithm);
+        for (int i = 0; i < 10; i++) {
+            byte[] key = ("key-" + i).getBytes();
+            for (int start = 0; start < key.length; start += 2) {
+                map.updateKey(ByteBuffer.wrap(key, start, Math.min(2, key.length - start)));
+            }
+            map.putKey(i);
+        }
+        assertEquals(10, map.size());
+        for (int i = 0; i < 10; i++) {
+            assertEquals(i, map.get(ByteBuffer.wrap(("key-" + i).getBytes())));
+        }
+    }
+
+    @Test
+    public void testPutKeyOverwritesEntryOfPut() throws Exception {
+        SkimpyOffsetMap map = new SkimpyOffsetMap(MEMORY_SIZE);
+        map.put(key(1), 1);
+        map.updateKey(key(1));
+        map.putKey(2);
+        assertEquals(1, map.size());
+        assertEquals(2, map.get(key(1)));
+    }
+
+    @Test
+    public void testGetAndPutRejectPendingKey() throws Exception {
+        SkimpyOffsetMap map = new SkimpyOffsetMap(MEMORY_SIZE);
+        map.put(key(0), 0);
+        map.updateKey(key(1));
+        assertThrows(IllegalStateException.class, () -> map.get(key(0)));
+        assertThrows(IllegalStateException.class, () -> map.put(key(0), 1));
+        map.putKey(1);
+        assertEquals(0, map.get(key(0)));
+        assertEquals(1, map.get(key(1)));
+    }
+
+    @Test
+    public void testClearDiscardsPendingKey() throws Exception {
+        SkimpyOffsetMap map = new SkimpyOffsetMap(MEMORY_SIZE);
+        map.updateKey(key(0));
+        map.clear();
+        map.updateKey(key(1));
+        map.putKey(1);
+        assertEquals(1, map.get(key(1)));
+    }
+
+    @Test
+    public void testPutKeyWhenFullDiscardsPendingKey() throws Exception {
+        SkimpyOffsetMap map = new SkimpyOffsetMap(MEMORY_SIZE);
+        int i = 37;
+        while (map.size() < map.slots()) {
+            map.put(key(i), i);
+            i++;
+        }
+        map.updateKey(key(i));
+        assertThrows(IllegalArgumentException.class, () -> map.putKey(0));
+        assertEquals(i - 1, map.get(key(i - 1)));
+    }
+
     private ByteBuffer key(Integer key) {
         return ByteBuffer.wrap(key.toString().getBytes());
     }

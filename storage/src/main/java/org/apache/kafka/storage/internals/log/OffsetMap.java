@@ -22,6 +22,19 @@ import java.security.DigestException;
 public interface OffsetMap {
     int slots();
     void put(ByteBuffer key, long offset) throws DigestException;
+
+    /**
+     * Append a chunk of the pending key, which must be completed by {@link #putKey(long)} before calling
+     * {@link #put(ByteBuffer, long)} or {@link #get(ByteBuffer)}. The chunk is consumed and not retained.
+     */
+    void updateKey(ByteBuffer keyChunk);
+
+    /**
+     * Associate the offset to the key composed of the chunks passed to {@link #updateKey(ByteBuffer)} since the
+     * last call to this method or {@link #clear()}.
+     */
+    void putKey(long offset) throws DigestException;
+
     long get(ByteBuffer key) throws DigestException;
     void updateLatestOffset(long offset);
     void clear();

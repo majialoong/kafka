@@ -38,18 +38,25 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.apache.kafka.common.record.internal.DefaultRecordBatch.RECORDS_COUNT_OFFSET;
 import static org.apache.kafka.common.record.internal.DefaultRecordBatch.RECORDS_OFFSET;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -653,6 +660,96 @@ public class DefaultRecordBatchTest {
         InvalidRecordException ex = assertThrows(InvalidRecordException.class, () -> batch.offsetOfMaxTimestamp(100));
         assertTrue(ex.getMessage().contains("exceeds the configured maximum record size"),
             "expected the configured-maximum guard, got: " + ex.getMessage());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CompressionType.class)
+    public void testSkipValueIteratorPassesKeys(CompressionType compressionType) {
+        Compression compression = Compression.of(compressionType).build();
+        Header[] headers = {new RecordHeader("k1", "v1".getBytes()), new RecordHeader("k2", null)};
+        byte[] largeKey = new byte[DefaultRecordBatch.KEY_CHUNK_SIZE * 2 + 1];
+        RANDOM.nextBytes(largeKey);
+        byte[] largeValue = new byte[200 * 1024];
+        RANDOM.nextBytes(largeValue);
+        List<SimpleRecord> simpleRecords = List.of(
+            new SimpleRecord(1L, "a".getBytes(), "1".getBytes()),
+            new SimpleRecord(2L, "b".getBytes(), null),
+            new SimpleRecord(3L, null, "3".getBytes()),
+            new SimpleRecord(4L, null, (byte[]) null),
+            // a key spanning multiple chunks
+            new SimpleRecord(5L, largeKey, largeValue),
+            new SimpleRecord(6L, new byte[0], "6".getBytes(), headers));
+        MemoryRecords records = MemoryRecords.withRecords(RecordBatch.MAGIC_VALUE_V2, 0L,
+            compression, TimestampType.CREATE_TIME, simpleRecords.toArray(new SimpleRecord[0]));
+        DefaultRecordBatch batch = new DefaultRecordBatch(records.buffer());
+
+        ByteArrayOutputStream key = new ByteArrayOutputStream();
+        try (BufferSupplier bufferSupplier = BufferSupplier.create();
+             CloseableIterator<Record> iterator = batch.skipValueIterator(bufferSupplier, offset -> true, appendTo(key))) {
+            for (int i = 0; i < simpleRecords.size(); i++) {
+                SimpleRecord expected = simpleRecords.get(i);
+                Record record = iterator.next();
+                assertEquals(i, record.offset());
+                assertEquals(expected.timestamp(), record.timestamp());
+                assertEquals(expected.key() != null, record.hasKey());
+                assertEquals(expected.value() != null, record.hasValue());
+                assertArrayEquals(expected.key() == null ? new byte[0] : Utils.toArray(expected.key()), key.toByteArray());
+                key.reset();
+            }
+            assertFalse(iterator.hasNext());
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CompressionType.class)
+    public void testSkipValueIteratorSkipsFilteredKeys(CompressionType compressionType) {
+        MemoryRecords records = MemoryRecords.withRecords(RecordBatch.MAGIC_VALUE_V2, 0L,
+            Compression.of(compressionType).build(), TimestampType.CREATE_TIME,
+            new SimpleRecord(1L, "a".getBytes(), "1".getBytes()),
+            new SimpleRecord(2L, "b".getBytes(), "2".getBytes()),
+            new SimpleRecord(3L, "c".getBytes(), "3".getBytes()));
+        DefaultRecordBatch batch = new DefaultRecordBatch(records.buffer());
+
+        ByteArrayOutputStream keys = new ByteArrayOutputStream();
+        try (CloseableIterator<Record> iterator = batch.skipValueIterator(BufferSupplier.NO_CACHING, offset -> offset != 1L, appendTo(keys))) {
+            assertEquals(List.of(0L, 1L, 2L), Utils.toList(iterator).stream().map(Record::offset).collect(Collectors.toList()));
+        }
+        assertArrayEquals("ac".getBytes(), keys.toByteArray());
+    }
+
+    @Test
+    public void testSkipValueIteratorDoesNotBoundRecordBodySize() {
+        // the record body is larger than the configured maximum used by testCompressedIteratorsEnforceConfiguredMaxRecordBodySize
+        DefaultRecordBatch batch = recordBatchWithValueSize(1000);
+        ByteArrayOutputStream key = new ByteArrayOutputStream();
+        try (CloseableIterator<Record> iterator = batch.skipValueIterator(BufferSupplier.NO_CACHING, offset -> true, appendTo(key))) {
+            Record record = iterator.next();
+            assertEquals(1000, record.valueSize());
+            assertFalse(iterator.hasNext());
+        }
+        assertArrayEquals("key".getBytes(), key.toByteArray());
+    }
+
+    @Test
+    public void testSkipValueIteratorReusesKeyChunk() {
+        DefaultRecordBatch batch = recordBatchWithValueSize(10);
+        Set<ByteBuffer> keyChunks = Collections.newSetFromMap(new IdentityHashMap<>());
+        try (BufferSupplier bufferSupplier = BufferSupplier.create()) {
+            for (int i = 0; i < 2; i++) {
+                try (CloseableIterator<Record> iterator = batch.skipValueIterator(bufferSupplier, offset -> true, keyChunks::add)) {
+                    iterator.next();
+                }
+            }
+        }
+        assertEquals(1, keyChunks.size());
+    }
+
+    private static Consumer<ByteBuffer> appendTo(ByteArrayOutputStream out) {
+        return chunk -> {
+            byte[] bytes = new byte[chunk.remaining()];
+            chunk.get(bytes);
+            out.writeBytes(bytes);
+        };
     }
 
     private static DefaultRecordBatch recordBatchWithValueSize(int valueSize) {

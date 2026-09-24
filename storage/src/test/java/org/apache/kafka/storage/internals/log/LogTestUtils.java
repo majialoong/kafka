@@ -45,6 +45,7 @@ import org.apache.kafka.test.TestUtils;
 
 import org.mockito.Mockito;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -668,6 +669,7 @@ public class LogTestUtils {
     public static class FakeOffsetMap implements OffsetMap {
 
         private final Map<String, Long> map = new HashMap<>();
+        private final ByteArrayOutputStream pendingKey = new ByteArrayOutputStream();
         private final int slots;
         private long latestOff = -1L;
 
@@ -689,6 +691,19 @@ public class LogTestUtils {
             latestOff = offset;
             map.put(new String(Utils.readBytes(key.duplicate()), StandardCharsets.UTF_8), offset);
         }
+
+        @Override
+        public void updateKey(ByteBuffer keyChunk) {
+            byte[] bytes = new byte[keyChunk.remaining()];
+            keyChunk.get(bytes);
+            pendingKey.writeBytes(bytes);
+        }
+
+        @Override
+        public void putKey(long offset) {
+            put(ByteBuffer.wrap(pendingKey.toByteArray()), offset);
+            pendingKey.reset();
+        }
         
         @Override
         public long get(ByteBuffer key) {
@@ -703,6 +718,7 @@ public class LogTestUtils {
         @Override
         public void clear() {
             map.clear();
+            pendingKey.reset();
         }
         
         @Override

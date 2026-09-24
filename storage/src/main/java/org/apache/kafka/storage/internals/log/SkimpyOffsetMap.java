@@ -59,6 +59,9 @@ public class SkimpyOffsetMap implements OffsetMap {
     /* the latest offset written into the map */
     private long lastOffset = -1L;
 
+    /* whether the digest holds a key passed to updateKey which is not completed by putKey yet */
+    private boolean hasPendingKey = false;
+
     /**
      * Create an instance of SkimpyOffsetMap with the default hash algorithm (MD5).
      *
@@ -99,6 +102,7 @@ public class SkimpyOffsetMap implements OffsetMap {
      */
     @Override
     public long get(ByteBuffer key) throws DigestException {
+        checkNoPendingKey();
         hashInto(key, hash1);
         // search for the hash of this key by repeated probing until we find the hash we are looking for or we find an empty slot
         int attempt = 0;
@@ -125,12 +129,41 @@ public class SkimpyOffsetMap implements OffsetMap {
      */
     @Override
     public void put(ByteBuffer key, long offset) throws DigestException {
+        checkNoPendingKey();
+        checkNotFull();
+        hashInto(key, hash1);
+        putHash1(offset);
+    }
+
+    @Override
+    public void updateKey(ByteBuffer keyChunk) {
+        digest.update(keyChunk);
+        hasPendingKey = true;
+    }
+
+    @Override
+    public void putKey(long offset) throws DigestException {
+        digest.digest(hash1, 0, hashSize);
+        hasPendingKey = false;
+        checkNotFull();
+        putHash1(offset);
+    }
+
+    private void checkNoPendingKey() {
+        if (hasPendingKey)
+            throw new IllegalStateException("The pending key must be completed by putKey before hashing another key");
+    }
+
+    private void checkNotFull() {
         if (entries >= slots)
             throw new IllegalArgumentException("Attempted to add a new entry to a full offset map, "
                 + "entries: " + entries + ", slots: " + slots);
+    }
 
-        hashInto(key, hash1);
-
+    /**
+     * Associate this offset to the hash stored in hash1.
+     */
+    private void putHash1(long offset) {
         // probe until we find the first empty slot
         int attempt = 0;
         int pos = positionOf(hash1, attempt);
@@ -165,6 +198,8 @@ public class SkimpyOffsetMap implements OffsetMap {
      */
     @Override
     public void clear() {
+        digest.reset();
+        this.hasPendingKey = false;
         this.entries = 0;
         this.lastOffset = -1L;
         Arrays.fill(bytes.array(), bytes.arrayOffset(), bytes.arrayOffset() + bytes.limit(), (byte) 0);

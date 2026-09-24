@@ -383,6 +383,71 @@ public class LogCleanerTest {
             "expected the configured-maximum guard message, got: " + e.getMessage());
     }
 
+    /**
+     * Building the offset map only needs the key of each record, so a compressed record whose decompressed body
+     * exceeds max.decompressed.message.bytes is indexed instead of being rejected.
+     */
+    @Test
+    public void testBuildOffsetMapIndexesRecordExceedingConfiguredMaxDecompressedMessageBytes() throws IOException, DigestException {
+        Cleaner cleaner = makeCleaner(10);
+        Properties logProps = new Properties();
+        logProps.put(TopicConfig.CLEANUP_POLICY_CONFIG, TopicConfig.CLEANUP_POLICY_COMPACT);
+        logProps.put(TopicConfig.MAX_DECOMPRESSED_MESSAGE_BYTES_CONFIG, "10");
+        UnifiedLog log = makeLog(LogConfig.fromProps(logConfig.originals(), logProps));
+
+        MemoryRecords oversized = MemoryRecords.withIdempotentRecords(RecordBatch.CURRENT_MAGIC_VALUE, 0L,
+            Compression.gzip().build(), RecordBatch.NO_PRODUCER_ID, RecordBatch.NO_PRODUCER_EPOCH,
+            RecordBatch.NO_SEQUENCE, 0,
+            new SimpleRecord("k1".getBytes(), new byte[100]),
+            new SimpleRecord("k2".getBytes(), new byte[100]),
+            new SimpleRecord("k1".getBytes(), new byte[100]));
+        log.appendAsFollower(oversized, Integer.MAX_VALUE);
+        log.roll();
+
+        LogTestUtils.FakeOffsetMap map = new LogTestUtils.FakeOffsetMap(Integer.MAX_VALUE);
+        cleaner.buildOffsetMap(log, 0L, log.activeSegment().baseOffset(), map, new CleanerStats(Time.SYSTEM));
+        assertEquals(Map.of("k1", 2L, "k2", 1L), map.map());
+    }
+
+    @Test
+    public void testBuildOffsetMapFromMiddleOfCompressedBatch() throws IOException, DigestException {
+        Cleaner cleaner = makeCleaner(Integer.MAX_VALUE);
+        UnifiedLog log = makeLog();
+        log.appendAsLeader(compressedRecords(5), 0);
+        log.roll();
+
+        LogTestUtils.FakeOffsetMap map = new LogTestUtils.FakeOffsetMap(Integer.MAX_VALUE);
+        CleanerStats stats = new CleanerStats(Time.SYSTEM);
+        cleaner.buildOffsetMap(log, 2L, log.activeSegment().baseOffset(), map, stats);
+        // the keys of the records before the start offset must not be mixed into the following keys
+        assertEquals(Map.of("2", 2L, "3", 3L, "4", 4L), map.map());
+        assertEquals(5, stats.mapMessagesRead());
+    }
+
+    @Test
+    public void testBuildOffsetMapStopsInMiddleOfCompressedBatchWhenMapIsFull() throws Exception {
+        Cleaner cleaner = makeCleaner(Integer.MAX_VALUE);
+        UnifiedLog log = makeLog();
+        log.appendAsLeader(compressedRecords(5), 0);
+        log.roll();
+
+        // 4 slots with the 0.75 load factor of the cleaner, so only 3 keys can be put
+        SkimpyOffsetMap map = new SkimpyOffsetMap(4 * (16 + 8));
+        cleaner.buildOffsetMap(log, 0L, log.activeSegment().baseOffset(), map, new CleanerStats(Time.SYSTEM));
+        assertEquals(3, map.size());
+        // the key of the record that did not fit must not be mixed into the subsequent lookups
+        for (int i = 0; i < 3; i++) {
+            assertEquals(i, map.get(ByteBuffer.wrap(String.valueOf(i).getBytes())));
+        }
+        assertEquals(-1L, map.get(ByteBuffer.wrap("3".getBytes())));
+    }
+
+    private static MemoryRecords compressedRecords(int numRecords) {
+        return MemoryRecords.withRecords(Compression.gzip().build(), IntStream.range(0, numRecords)
+            .mapToObj(i -> new SimpleRecord(String.valueOf(i).getBytes(), "v".getBytes()))
+            .toArray(SimpleRecord[]::new));
+    }
+
     @Test
     public void testDuplicateCheckAfterCleaning() throws IOException, DigestException {
         Cleaner cleaner = makeCleaner(Integer.MAX_VALUE);

@@ -20,6 +20,7 @@ import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.CorruptRecordException;
 import org.apache.kafka.common.message.AbortedTxn;
+import org.apache.kafka.common.record.internal.DefaultRecordBatch;
 import org.apache.kafka.common.record.internal.FileLogInputStream.FileChannelRecordBatch;
 import org.apache.kafka.common.record.internal.FileRecords;
 import org.apache.kafka.common.record.internal.MemoryRecords;
@@ -45,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.LongPredicate;
 import java.util.stream.Stream;
 
 /**
@@ -771,8 +773,10 @@ public class Cleaner {
      * @param maxLogMessageSize The maximum size in bytes for record allowed
      * @param transactionMetadata The state of ongoing transactions for the log between offset range to build
      * @param stats Collector for cleaning statistics
-     * @param maxRecordBodySize The maximum decompressed per-record body size of the corresponding topic; records
-     *                          exceeding it are rejected with an InvalidRecordException before allocation
+     * @param maxRecordBodySize The maximum decompressed per-record body size of the corresponding topic; records in
+     *                          legacy batches exceeding it are rejected with an InvalidRecordException before
+     *                          allocation. Records in v2 batches are not bounded since their bodies are not
+     *                          materialized
      *
      * @return If the map was filled whilst loading from this segment
      */
@@ -811,19 +815,8 @@ public class Cleaner {
                         // If the batch is aborted, do not bother populating the offset map.
                         // Note that abort markers are supported in v2 and above, which means count is defined.
                         stats.indexMessagesRead(batch.countOrNull());
-                    } else {
-                        try (CloseableIterator<Record> recordsIterator = batch.streamingIterator(decompressionBufferSupplier, maxRecordBodySize)) {
-                            for (Record record : (Iterable<Record>) () -> recordsIterator) {
-                                if (record.hasKey() && record.offset() >= startOffset) {
-                                    if (map.size() < maxDesiredMapSize) {
-                                        map.put(record.key(), record.offset());
-                                    } else {
-                                        return true;
-                                    }
-                                }
-                                stats.indexMessagesRead(1);
-                            }
-                        }
+                    } else if (buildOffsetMapForBatch(batch, map, startOffset, maxDesiredMapSize, stats, maxRecordBodySize)) {
+                        return true;
                     }
                 }
 
@@ -844,6 +837,51 @@ public class Cleaner {
 
         restoreBuffers();
 
+        return false;
+    }
+
+    /**
+     * Add the keyed records at or after the start offset in the given batch to the offset map.
+     *
+     * @return If the map was filled whilst loading from this batch
+     */
+    private boolean buildOffsetMapForBatch(MutableRecordBatch batch,
+                                           OffsetMap map,
+                                           long startOffset,
+                                           int maxDesiredMapSize,
+                                           CleanerStats stats,
+                                           int maxRecordBodySize) throws DigestException {
+        if (batch instanceof DefaultRecordBatch defaultBatch) {
+            // Keys are fed to the map before their records are returned, and only putKey changes the map size,
+            // so testing the same filter again tells whether the fed key has to be put.
+            LongPredicate shouldIndex = offset -> offset >= startOffset && map.size() < maxDesiredMapSize;
+            try (CloseableIterator<Record> recordsIterator = defaultBatch.skipValueIterator(decompressionBufferSupplier, shouldIndex, map::updateKey)) {
+                for (Record record : (Iterable<Record>) () -> recordsIterator) {
+                    if (record.hasKey() && record.offset() >= startOffset) {
+                        if (shouldIndex.test(record.offset())) {
+                            map.putKey(record.offset());
+                        } else {
+                            return true;
+                        }
+                    }
+                    stats.indexMessagesRead(1);
+                }
+            }
+            return false;
+        }
+
+        try (CloseableIterator<Record> recordsIterator = batch.streamingIterator(decompressionBufferSupplier, maxRecordBodySize)) {
+            for (Record record : (Iterable<Record>) () -> recordsIterator) {
+                if (record.hasKey() && record.offset() >= startOffset) {
+                    if (map.size() < maxDesiredMapSize) {
+                        map.put(record.key(), record.offset());
+                    } else {
+                        return true;
+                    }
+                }
+                stats.indexMessagesRead(1);
+            }
+        }
         return false;
     }
 }
