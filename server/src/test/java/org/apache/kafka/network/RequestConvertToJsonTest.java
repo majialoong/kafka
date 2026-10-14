@@ -41,6 +41,7 @@ import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.network.metrics.RequestChannelMetrics;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.BooleanNode;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
@@ -56,6 +57,8 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 public class RequestConvertToJsonTest {
 
@@ -155,6 +158,16 @@ public class RequestConvertToJsonTest {
         JsonNode actualNode = RequestConvertToJson.requestHeaderNode(header);
 
         assertEquals(expectedNode, actualNode);
+    }
+
+    @Test
+    public void testDeprecatedRequestHeaderNode() {
+        RequestHeader header = spy(new RequestHeader(ApiKeys.ALTER_PARTITION, ApiKeys.ALTER_PARTITION.latestVersion(), "client-id", 1));
+        when(header.isApiVersionDeprecated()).thenReturn(true);
+
+        JsonNode actualNode = RequestConvertToJson.requestHeaderNode(header);
+
+        assertEquals(BooleanNode.TRUE, actualNode.get("requestApiVersionDeprecated"));
     }
 
     @Test
