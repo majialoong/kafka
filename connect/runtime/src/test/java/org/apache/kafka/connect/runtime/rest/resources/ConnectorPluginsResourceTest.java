@@ -88,6 +88,7 @@ import jakarta.ws.rs.BadRequestException;
 import static org.apache.kafka.connect.runtime.rest.RestServer.DEFAULT_HEALTH_CHECK_TIMEOUT_MS;
 import static org.apache.kafka.connect.runtime.rest.RestServer.DEFAULT_REST_REQUEST_TIMEOUT_MS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -354,6 +355,27 @@ public class ConnectorPluginsResourceTest {
     @Test
     public void testValidateConfigWithNonExistentAlias() {
         assertThrows(BadRequestException.class, () -> connectorPluginsResource.validateConfigs("ConnectorPluginsTest", PROPS));
+    }
+
+    @Test
+    public void testValidateConfigUnwrapsCallbackException() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Callback<ConfigInfos>> configInfosCallback = ArgumentCaptor.forClass(Callback.class);
+        org.apache.kafka.connect.runtime.rest.errors.BadRequestException expected =
+            new org.apache.kafka.connect.runtime.rest.errors.BadRequestException("Connector config contains no connector type");
+        doAnswer(invocation -> {
+            configInfosCallback.getValue().onCompletion(expected, null);
+            return null;
+        }).when(herder).validateConnectorConfig(eq(PARTIAL_PROPS), configInfosCallback.capture(), anyBoolean());
+
+        org.apache.kafka.connect.runtime.rest.errors.BadRequestException actual = assertThrows(
+            org.apache.kafka.connect.runtime.rest.errors.BadRequestException.class,
+            () -> connectorPluginsResource.validateConfigs(
+                ConnectorPluginsResourceTestConnector.class.getSimpleName(),
+                PARTIAL_PROPS
+            )
+        );
+        assertSame(expected, actual);
     }
 
     @Test

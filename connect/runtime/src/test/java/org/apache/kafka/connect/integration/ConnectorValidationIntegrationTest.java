@@ -46,6 +46,8 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
+import jakarta.ws.rs.core.Response;
+
 import static org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_ID_CONFIG;
 import static org.apache.kafka.common.config.AbstractConfig.CONFIG_PROVIDERS_CONFIG;
 import static org.apache.kafka.connect.integration.TestableSourceConnector.TOPIC_CONFIG;
@@ -586,6 +588,7 @@ public class ConnectorValidationIntegrationTest {
 
         ConnectRestException e = assertThrows(ConnectRestException.class, () ->
                 connect.validateConnectorConfig(TestableSourceConnector.class.getSimpleName(), config));
+        assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), e.statusCode());
         assertFalse(e.getMessage().contains(VALUE));
     }
 

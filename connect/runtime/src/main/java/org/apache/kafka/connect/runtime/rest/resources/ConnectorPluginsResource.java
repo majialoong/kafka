@@ -40,6 +40,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -153,6 +154,8 @@ public class ConnectorPluginsResource {
 
         try {
             return validationCallback.get(requestTimeout.timeoutMs(), TimeUnit.MILLISECONDS);
+        } catch (ExecutionException e) {
+            throw e.getCause();
         } catch (StagedTimeoutException e) {
             Stage stage = e.stage();
             String message;
