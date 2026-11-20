@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -51,13 +52,29 @@ class RequestMetricsTest {
 
     @Test
     void testDeprecatedRequestRate() throws MalformedObjectNameException {
+        short otherVersion = 2;
+        ClientInformation otherClientInfo = new ClientInformation("other-client", "2.0");
         when(apiKey.isVersionDeprecated(VERSION)).thenReturn(true);
-        assertNull(registeredDeprecatedRequestMetric());
+        when(apiKey.isVersionDeprecated(otherVersion)).thenReturn(true);
+        assertNull(registeredDeprecatedRequestMetric(VERSION, clientInformation));
 
         Meter meter = metrics.deprecatedRequestRate(apiKey, VERSION, clientInformation).orElseThrow();
 
-        assertSame(meter, registeredDeprecatedRequestMetric());
+        assertSame(meter, registeredDeprecatedRequestMetric(VERSION, clientInformation));
         assertSame(meter, metrics.deprecatedRequestRate(apiKey, VERSION, new ClientInformation("test-client", "1.0")).orElseThrow());
+
+        Meter otherVersionMeter = metrics.deprecatedRequestRate(apiKey, otherVersion, clientInformation).orElseThrow();
+        Meter otherClientMeter = metrics.deprecatedRequestRate(apiKey, VERSION, otherClientInfo).orElseThrow();
+
+        assertNotSame(meter, otherVersionMeter);
+        assertNotSame(meter, otherClientMeter);
+        assertSame(otherVersionMeter, registeredDeprecatedRequestMetric(otherVersion, clientInformation));
+        assertSame(otherClientMeter, registeredDeprecatedRequestMetric(VERSION, otherClientInfo));
+
+        metrics.removeMetrics();
+        assertNull(registeredDeprecatedRequestMetric(VERSION, clientInformation));
+        assertNull(registeredDeprecatedRequestMetric(otherVersion, clientInformation));
+        assertNull(registeredDeprecatedRequestMetric(VERSION, otherClientInfo));
     }
 
     @Test
@@ -65,12 +82,14 @@ class RequestMetricsTest {
         when(apiKey.isVersionDeprecated(VERSION)).thenReturn(false);
 
         assertTrue(metrics.deprecatedRequestRate(apiKey, VERSION, clientInformation).isEmpty());
-        assertNull(registeredDeprecatedRequestMetric());
+        assertNull(registeredDeprecatedRequestMetric(VERSION, clientInformation));
     }
 
-    private Metric registeredDeprecatedRequestMetric() throws MalformedObjectNameException {
+    private Metric registeredDeprecatedRequestMetric(short version, ClientInformation clientInfo) throws MalformedObjectNameException {
         ObjectName expectedName = new ObjectName("kafka.network:type=RequestMetrics,name=DeprecatedRequestsPerSec,"
-            + "request=" + REQUEST_NAME + ",version=1,clientSoftwareName=test-client,clientSoftwareVersion=1.0");
+            + "request=" + REQUEST_NAME + ",version=" + version
+            + ",clientSoftwareName=" + clientInfo.softwareName()
+            + ",clientSoftwareVersion=" + clientInfo.softwareVersion());
         for (var entry : KafkaYammerMetrics.defaultRegistry().allMetrics().entrySet()) {
             if (expectedName.equals(new ObjectName(entry.getKey().getMBeanName()))) {
                 return entry.getValue();

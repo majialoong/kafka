@@ -29,6 +29,7 @@ import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData.AlterConfigsResource;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData.AlterableConfig;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData.AlterableConfigCollection;
+import org.apache.kafka.common.message.MetadataResponseData;
 import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.network.Send;
@@ -46,21 +47,26 @@ import org.apache.kafka.common.requests.EnvelopeRequest;
 import org.apache.kafka.common.requests.EnvelopeResponse;
 import org.apache.kafka.common.requests.IncrementalAlterConfigsRequest;
 import org.apache.kafka.common.requests.MetadataRequest;
+import org.apache.kafka.common.requests.MetadataResponse;
 import org.apache.kafka.common.requests.RequestContext;
 import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.KafkaPrincipalSerde;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
+import org.apache.kafka.common.utils.LogCaptureAppender;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.common.utils.internals.SecurityUtils;
 import org.apache.kafka.network.metrics.RequestChannelMetrics;
 import org.apache.kafka.server.EnvelopeUtils;
+import org.apache.kafka.server.logger.LoggingController;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -71,6 +77,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.apache.kafka.common.config.SaslConfigs.SASL_JAAS_CONFIG;
@@ -88,6 +95,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 public class RequestTest {
 
@@ -302,6 +311,51 @@ public class RequestTest {
         }
     }
 
+    @Test
+    public void testDeprecatedRequestLogging() {
+        String requestLoggerName = "kafka.request.logger";
+        // Ensure the request logger is registered before dynamically changing its level
+        LoggerFactory.getLogger(requestLoggerName);
+        MetadataRequest metadataRequest = new MetadataRequest.Builder(List.of("topic"), true).build();
+        MetadataResponse metadataResponse = new MetadataResponse(new MetadataResponseData(), metadataRequest.version());
+
+        try (LogCaptureAppender appender = LogCaptureAppender.createAndRegister();
+             RequestChannelMetrics channelMetrics = new RequestChannelMetrics(Set.of(ApiKeys.METADATA))) {
+            assertTrue(LoggingController.logLevel(requestLoggerName, "INFO"));
+
+            Request nonDeprecatedReq = request(metadataRequest, channelMetrics, false);
+            assertTrue(nonDeprecatedReq.requestLog().isEmpty());
+            assertTrue(nonDeprecatedReq.responseNode(metadataResponse).isEmpty());
+            nonDeprecatedReq.updateRequestMetrics(0L, Optional.empty());
+
+            Request deprecatedReq = request(metadataRequest, channelMetrics, true);
+            assertTrue(deprecatedReq.requestLog().isPresent());
+            Optional<JsonNode> responseNode = deprecatedReq.responseNode(metadataResponse);
+            assertTrue(responseNode.isPresent());
+            deprecatedReq.updateRequestMetrics(0L, responseNode);
+
+            List<LogCaptureAppender.Event> requestLogs = appender.getEvents().stream()
+                .filter(event -> event.getMessage().startsWith("Completed request:"))
+                .toList();
+            assertEquals(1, requestLogs.size());
+            assertEquals("INFO", requestLogs.get(0).getLevel());
+            assertTrue(requestLogs.get(0).getMessage().contains("\"requestApiVersionDeprecated\":true"));
+
+            assertTrue(LoggingController.logLevel(requestLoggerName, "WARN"));
+            Request deprecatedReqAtWarn = request(metadataRequest, channelMetrics, true);
+            assertTrue(deprecatedReqAtWarn.requestLog().isEmpty());
+            assertTrue(deprecatedReqAtWarn.responseNode(metadataResponse).isEmpty());
+            deprecatedReqAtWarn.updateRequestMetrics(0L, Optional.empty());
+
+            long totalRequestLogs = appender.getEvents().stream()
+                .filter(event -> event.getMessage().startsWith("Completed request:"))
+                .count();
+            assertEquals(1, totalRequestLogs);
+        } finally {
+            LoggingController.unsetLogLevel(requestLoggerName);
+        }
+    }
+
     private CreateTopicsRequest buildCreateTopicRequest(String topic) {
         CreateTopicsRequestData requestData = new CreateTopicsRequestData();
         requestData.topics().add(new CreatableTopic()
@@ -387,9 +441,18 @@ public class RequestTest {
     }
 
     private Request request(AbstractRequest req) {
+        return request(req, mock(RequestChannelMetrics.class), false);
+    }
+
+    private Request request(AbstractRequest req, RequestChannelMetrics metrics, boolean deprecated) {
         ByteBuffer buffer = req.serializeWithHeader(new RequestHeader(req.apiKey(), req.version(), "client-id", 1));
+        RequestHeader header = RequestHeader.parse(buffer);
+        if (deprecated) {
+            header = spy(header);
+            when(header.isApiVersionDeprecated()).thenReturn(true);
+        }
         RequestContext requestContext = new RequestContext(
-            RequestHeader.parse(buffer),
+            header,
             "connection-id",
             InetAddress.getLoopbackAddress(),
             new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "user"),
@@ -398,7 +461,7 @@ public class RequestTest {
             new ClientInformation("name", "version"),
             false
         );
-        return new Request(1, requestContext, 0, mock(MemoryPool.class), buffer, mock(RequestChannelMetrics.class));
+        return new Request(1, requestContext, 0, mock(MemoryPool.class), buffer, metrics);
     }
 
     private Map<String, String> toMap(Config config) {
