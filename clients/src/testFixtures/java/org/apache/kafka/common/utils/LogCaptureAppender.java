@@ -20,8 +20,11 @@ import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Configuration;
 import org.apache.logging.log4j.core.config.Configurator;
+import org.apache.logging.log4j.core.config.LoggerConfig;
 import org.apache.logging.log4j.core.config.Property;
 
 import java.io.PrintWriter;
@@ -39,6 +42,7 @@ public class LogCaptureAppender extends AbstractAppender implements AutoCloseabl
     private final List<LogEvent> events = new LinkedList<>();
     private final Map<Class<?>, Level> logLevelChanges = new HashMap<>();
     private final List<org.apache.logging.log4j.core.Logger> loggers = new ArrayList<>();
+    private Runnable restoreLoggerConfig;
     
     @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
     public static class Event {
@@ -87,6 +91,31 @@ public class LogCaptureAppender extends AbstractAppender implements AutoCloseabl
         Logger logger = LogManager.getLogger(clazz);
         logCaptureAppender.addToLogger(logger);
         return logCaptureAppender;
+    }
+
+    /** Captures a named logger at the given level until the appender is closed. */
+    public static LogCaptureAppender createAndRegister(String loggerName, String level) {
+        Level captureLevel = Level.valueOf(level);
+        LoggerContext context = LoggerContext.getContext(false);
+        Configuration config = context.getConfiguration();
+        LoggerConfig original = config.getLoggers().get(loggerName);
+        Level originalLevel = original == null ? null : original.getExplicitLevel();
+
+        Configurator.setLevel(loggerName, captureLevel);
+        LoggerConfig target = config.getLoggerConfig(loggerName);
+        LogCaptureAppender appender = new LogCaptureAppender();
+        appender.start();
+        target.addAppender(appender, null, null);
+        appender.restoreLoggerConfig = () -> {
+            target.removeAppender(appender.getName());
+            if (original == null) {
+                config.removeLogger(loggerName);
+            } else {
+                original.setLevel(originalLevel);
+            }
+            context.updateLoggers();
+        };
+        return appender;
     }
 
     public void addToLogger(Logger logger) {
@@ -168,6 +197,10 @@ public class LogCaptureAppender extends AbstractAppender implements AutoCloseabl
         }
         logLevelChanges.clear();
 
+        if (restoreLoggerConfig != null) {
+            restoreLoggerConfig.run();
+            restoreLoggerConfig = null;
+        }
         unregister();
     }
 

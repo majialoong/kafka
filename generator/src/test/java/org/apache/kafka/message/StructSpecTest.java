@@ -68,4 +68,33 @@ public class StructSpecTest {
                     "  ]",
                     "}")), MessageSpec.class)).getCause().getMessage());
     }
+
+    @Test
+    public void testDeprecatedVersions() throws Exception {
+        MessageSpec spec = MessageGenerator.JSON_SERDE.readValue(String.join("", Arrays.asList(
+                "{",
+                "  \"type\": \"request\",",
+                "  \"name\": \"FooBarRequest\",",
+                "  \"validVersions\": \"0-4\",",
+                "  \"deprecatedVersions\": \"0-1\",",
+                "  \"flexibleVersions\": \"0+\",",
+                "  \"headerVersions\": { \"0+\": \"2\" },",
+                "  \"fields\": []",
+                "}")), MessageSpec.class);
+        assertEquals(new Versions((short) 0, (short) 1), spec.struct().deprecatedVersions());
+    }
+
+    @Test
+    public void testDeprecatedVersionsDefaultsToNone() throws Exception {
+        MessageSpec spec = MessageGenerator.JSON_SERDE.readValue(String.join("", Arrays.asList(
+                "{",
+                "  \"type\": \"request\",",
+                "  \"name\": \"FooBarRequest\",",
+                "  \"validVersions\": \"0-4\",",
+                "  \"flexibleVersions\": \"0+\",",
+                "  \"headerVersions\": { \"0+\": \"2\" },",
+                "  \"fields\": []",
+                "}")), MessageSpec.class);
+        assertEquals(Versions.NONE, spec.struct().deprecatedVersions());
+    }
 }

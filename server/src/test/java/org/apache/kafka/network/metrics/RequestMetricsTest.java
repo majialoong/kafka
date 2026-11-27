@@ -17,6 +17,7 @@
 package org.apache.kafka.network.metrics;
 
 import org.apache.kafka.common.network.ClientInformation;
+import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.server.metrics.KafkaYammerMetrics;
 
 import com.yammer.metrics.core.Meter;
@@ -30,10 +31,47 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public class RequestMetricsTest {
 
     private static final String REQUEST_NAME = "RequestMetricsTest";
+
+    @Test
+    public void testDeprecatedRequestRate() {
+        ApiKeys apiKey = mock(ApiKeys.class);
+        when(apiKey.isVersionDeprecated((short) 0)).thenReturn(true);
+        when(apiKey.isVersionDeprecated((short) 1)).thenReturn(true);
+        ClientInformation clientInformation = new ClientInformation("test-client", "1.0");
+        RequestMetrics metrics = new RequestMetrics(REQUEST_NAME);
+        try {
+            assertEquals(Set.of(), deprecatedRequestRateMBeanNames());
+
+            Meter meter = metrics.deprecatedRequestRate(apiKey, (short) 0, clientInformation).orElseThrow();
+            Meter otherVersionMeter = metrics.deprecatedRequestRate(apiKey, (short) 1, clientInformation).orElseThrow();
+
+            assertNotSame(meter, otherVersionMeter);
+            assertEquals(Set.of(mBeanName("test-client", "1.0"), mBeanName((short) 1, "test-client", "1.0")),
+                deprecatedRequestRateMBeanNames());
+        } finally {
+            metrics.removeMetrics();
+        }
+        assertEquals(Set.of(), deprecatedRequestRateMBeanNames());
+    }
+
+    @Test
+    public void testNonDeprecatedRequestRate() {
+        ApiKeys apiKey = mock(ApiKeys.class);
+        when(apiKey.isVersionDeprecated((short) 0)).thenReturn(false);
+        RequestMetrics metrics = new RequestMetrics(REQUEST_NAME);
+        try {
+            assertTrue(metrics.deprecatedRequestRate(apiKey, (short) 0, new ClientInformation("test-client", "1.0")).isEmpty());
+            assertEquals(Set.of(), deprecatedRequestRateMBeanNames());
+        } finally {
+            metrics.removeMetrics();
+        }
+    }
 
     @Test
     public void testDeprecatedRequestRateMetersAreLimited() {
@@ -72,8 +110,12 @@ public class RequestMetricsTest {
     }
 
     private static String mBeanName(String softwareName, String softwareVersion) {
+        return mBeanName((short) 0, softwareName, softwareVersion);
+    }
+
+    private static String mBeanName(short version, String softwareName, String softwareVersion) {
         return "kafka.network:type=RequestMetrics,name=" + RequestMetrics.DEPRECATED_REQUESTS_PER_SEC +
-            ",request=" + REQUEST_NAME + ",version=0,clientSoftwareName=" + softwareName + ",clientSoftwareVersion=" + softwareVersion;
+            ",request=" + REQUEST_NAME + ",version=" + version + ",clientSoftwareName=" + softwareName + ",clientSoftwareVersion=" + softwareVersion;
     }
 
     private static Set<String> deprecatedRequestRateMBeanNames() {

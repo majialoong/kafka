@@ -158,6 +158,21 @@ Number of errors in responses counted per-request-type, per-error-code. If a res
 <tr>  
 <td>
 
+Deprecated request rate
+</td>
+<td>
+
+kafka.network:type=RequestMetrics,name=DeprecatedRequestsPerSec,request=([-.\w]+),version=([0-9]+),clientSoftwareName=(.*),clientSoftwareVersion=(.*)
+</td>
+<td>
+
+Rate of requests using a deprecated API version, grouped by request type, API version, and client software. Brokers create the metric on the first such request. A non-zero rate helps identify clients to upgrade or configure to use newer API versions before the deprecated versions are removed.
+
+The broker truncates the client software name and version tags to 128 characters each. Once a request type has 1000 meters, new combinations share an overflow meter for their API version, with both client software tags set to `_overflow_`. Existing combinations keep their meters.
+</td> </tr>
+<tr>
+<td>
+
 Produce request rate
 </td>  
 <td>
