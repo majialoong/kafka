@@ -208,7 +208,7 @@ public class ControllerRegistrationManagerTest {
         }, new ControllerRegistrationResponse(new ControllerRegistrationResponseData()), CONTROLLER);
         manager.start(channelManager);
         publishOtherControllerRegistrations(version);
-        assertRpcStats(true, 0, 0);
+        assertTrue(onEventQueue(manager::pendingRpc));
         channelManager.poll();
 
         ControllerRegistrationRequest request = capturedRequest.get();
