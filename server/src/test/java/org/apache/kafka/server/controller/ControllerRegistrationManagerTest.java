@@ -104,8 +104,11 @@ public class ControllerRegistrationManagerTest {
 
     @AfterEach
     public void tearDown() throws Exception {
-        manager.close();
-        client.close();
+        try {
+            manager.close();
+        } finally {
+            client.close();
+        }
     }
 
     private static RegisterControllerRecord registration(int id) {
@@ -165,42 +168,47 @@ public class ControllerRegistrationManagerTest {
         assertRpcStats(false, 0, 0);
     }
 
-    @ParameterizedTest
-    @EnumSource(value = MetadataVersion.class, names = {"IBP_3_6_IV0", "IBP_3_7_IV0"})
-    public void testRegistration(MetadataVersion version) throws Exception {
+    @Test
+    public void testNoRegistrationWithUnsupportedMetadataVersion() throws Exception {
         manager.start(channelManager);
         assertFalse(registeredInLog());
         assertRpcStats(false, 0, 0);
 
-        if (version == IBP_3_6_IV0) {
-            publishMetadata(MetadataImage.EMPTY, version);
-            assertFalse(registeredInLog());
-            assertRpcStats(false, 0, 0);
-            return;
-        }
+        publishMetadata(MetadataImage.EMPTY, IBP_3_6_IV0);
+        assertFalse(registeredInLog());
+        assertRpcStats(false, 0, 0);
+    }
 
-        MetadataImage image = publishOtherControllerRegistrations(version);
+    @Test
+    public void testRegistration() throws Exception {
+        manager.start(channelManager);
+        assertFalse(registeredInLog());
+        assertRpcStats(false, 0, 0);
+
+        MetadataImage image = publishOtherControllerRegistrations(IBP_3_7_IV0);
         assertRpcStats(true, 0, 0);
         respond(new ControllerRegistrationResponseData());
         assertRpcStats(false, 1, 0);
         assertFalse(registeredInLog());
 
-        publishMetadata(image, version, registration(CONTROLLER.id()));
+        publishMetadata(image, IBP_3_7_IV0, registration(CONTROLLER.id()));
         assertTrue(registeredInLog());
     }
 
     @ParameterizedTest
     @EnumSource(value = MetadataVersion.class, names = {"IBP_4_4_IV2", "IBP_4_5_IV0"})
     public void testRequestVersionFollowsRequestHeaderVersion(MetadataVersion version) throws Exception {
-        var capturedRequest = new AtomicReference<ControllerRegistrationRequest>();
+        AtomicReference<ControllerRegistrationRequest> capturedRequest = new AtomicReference<>();
         client.prepareResponseFrom(body -> {
-            capturedRequest.set((ControllerRegistrationRequest) body);
-            return true;
+            if (body instanceof ControllerRegistrationRequest req) {
+                capturedRequest.set(req);
+                return true;
+            }
+            return false;
         }, new ControllerRegistrationResponse(new ControllerRegistrationResponseData()), CONTROLLER);
         manager.start(channelManager);
         publishOtherControllerRegistrations(version);
-        // Let the manager process the metadata update before polling the channel.
-        onEventQueue(() -> null);
+        assertRpcStats(true, 0, 0);
         channelManager.poll();
 
         ControllerRegistrationRequest request = capturedRequest.get();

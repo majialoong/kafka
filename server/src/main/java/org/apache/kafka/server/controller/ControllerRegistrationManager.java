@@ -110,7 +110,8 @@ public class ControllerRegistrationManager implements MetadataPublisher {
         this(nodeId, time, threadNamePrefix, supportedFeatures, incarnationId, listenerInfo, new ExponentialBackoff(100, 2, 120000L, 0.02));
     }
 
-    public ControllerRegistrationManager(
+    // Only for testing
+    ControllerRegistrationManager(
             int nodeId,
             Time time,
             String threadNamePrefix,
@@ -348,27 +349,27 @@ public class ControllerRegistrationManager implements MetadataPublisher {
     }
 
     // Only for testing
-    public KafkaEventQueue eventQueue() {
+    KafkaEventQueue eventQueue() {
         return eventQueue;
     }
 
     // Only for testing
-    public boolean registeredInLog() {
+    boolean registeredInLog() {
         return registeredInLog;
     }
 
     // Only for testing
-    public boolean pendingRpc() {
+    boolean pendingRpc() {
         return pendingRpc;
     }
 
     // Only for testing
-    public long successfulRpcs() {
+    long successfulRpcs() {
         return successfulRpcs;
     }
 
     // Only for testing
-    public long failedRpcs() {
+    long failedRpcs() {
         return failedRpcs;
     }
 
